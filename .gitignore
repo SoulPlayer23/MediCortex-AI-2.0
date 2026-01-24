@@ -14,3 +14,18 @@ env/
 # IDE settings
 .vscode/
 .idea/
+
+# Agent Architecture
+.tmp/
+credentials.json
+token.json
+
+# Antigravity templates
+directives/
+execution/
+frontend-dev/
+web-testing/
+skill-creator/
+AGENTS.md
+frontend-dev.skill
+web-testing.skill
