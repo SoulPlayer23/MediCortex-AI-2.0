@@ -26,6 +26,8 @@ execution/
 frontend-dev/
 web-testing/
 skill-creator/
+intelligent-agent-builder/
 AGENTS.md
 frontend-dev.skill
 web-testing.skill
+intelligent-agent-builder.skill
