@@ -1,16 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
-import { Sparkles, Paperclip, Mic, ArrowUp } from 'lucide-react';
+import { Sparkles, Paperclip, Mic, ArrowUp, X, File } from 'lucide-react';
 import clsx from 'clsx';
 
 interface InputAreaProps {
-    onSend: (message: string) => void;
+    onSend: (message: string, attachments?: any[]) => void;
     isLoading: boolean;
     isEmptyState: boolean;
 }
 
 const InputArea = ({ onSend, isLoading, isEmptyState }: InputAreaProps) => {
     const [input, setInput] = useState('');
+    const [attachments, setAttachments] = useState<any[]>([]);
+    const [isUploading, setIsUploading] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         if (textareaRef.current) {
@@ -19,10 +22,45 @@ const InputArea = ({ onSend, isLoading, isEmptyState }: InputAreaProps) => {
         }
     }, [input]);
 
+    const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files.length > 0) {
+            const file = e.target.files[0];
+            setIsUploading(true);
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch('http://localhost:8001/upload', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    setAttachments(prev => [...prev, {
+                        ...data,
+                        type: file.type
+                    }]);
+                }
+            } catch (error) {
+                console.error("Upload failed", error);
+            } finally {
+                setIsUploading(false);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+            }
+        }
+    };
+
+    const removeAttachment = (index: number) => {
+        setAttachments(prev => prev.filter((_, i) => i !== index));
+    };
+
     const handleSend = () => {
-        if (input.trim() && !isLoading) {
-            onSend(input);
+        if ((input.trim() || attachments.length > 0) && !isLoading && !isUploading) {
+            onSend(input, attachments);
             setInput('');
+            setAttachments([]);
             if (textareaRef.current) {
                 textareaRef.current.style.height = '24px';
             }
@@ -44,8 +82,32 @@ const InputArea = ({ onSend, isLoading, isEmptyState }: InputAreaProps) => {
             <div className={clsx("mx-auto", isEmptyState ? "w-full" : "max-w-3xl")}>
                 <div className="relative flex flex-col w-full bg-[#2f2f2f] rounded-[26px] shadow-sm focus-within:ring-1 focus-within:ring-gray-500 overflow-hidden">
 
+                    {/* Attachments Preview */}
+                    {attachments.length > 0 && (
+                        <div className="flex px-4 pt-3 gap-2 overflow-x-auto">
+                            {attachments.map((file, idx) => (
+                                <div key={idx} className="flex items-center gap-2 bg-[#3f3f3f] px-3 py-2 rounded-lg text-xs text-gray-200">
+                                    <File className="w-3 h-3" />
+                                    <span className="truncate max-w-[150px]">{file.filename}</span>
+                                    <button onClick={() => removeAttachment(idx)} className="hover:text-white">
+                                        <X className="w-3 h-3" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+
                     {/* File Attach Button */}
-                    <button className="absolute left-3 bottom-3 p-2 text-gray-400 hover:text-white hover:bg-[#424242] rounded-full transition-colors">
+                    <input
+                        type="file"
+                        ref={fileInputRef}
+                        className="hidden"
+                        onChange={handleFileSelect}
+                    />
+                    <button
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isUploading}
+                        className="absolute left-3 bottom-3 p-2 text-gray-400 hover:text-white hover:bg-[#424242] rounded-full transition-colors disabled:opacity-50">
                         <Paperclip className="w-5 h-5" />
                     </button>
 
@@ -61,20 +123,20 @@ const InputArea = ({ onSend, isLoading, isEmptyState }: InputAreaProps) => {
                     />
 
                     <div className="absolute right-3 bottom-2 flex items-center gap-2">
-                        {!input.trim() && (
+                        {!input.trim() && attachments.length === 0 && (
                             <button className="p-2 text-gray-400 hover:text-white hover:bg-[#424242] rounded-full transition-colors">
                                 <Mic className="w-5 h-5" />
                             </button>
                         )}
                         <button
-                            disabled={!input.trim() || isLoading}
+                            disabled={(!input.trim() && attachments.length === 0) || isLoading || isUploading}
                             onClick={handleSend}
                             className={clsx(
                                 "p-2 rounded-full transition-all duration-200",
-                                input.trim() && !isLoading ? "bg-white text-black hover:bg-gray-200" : "bg-[#676767] text-[#2f2f2f] cursor-not-allowed opacity-50"
+                                (input.trim() || attachments.length > 0) && !isLoading && !isUploading ? "bg-white text-black hover:bg-gray-200" : "bg-[#676767] text-[#2f2f2f] cursor-not-allowed opacity-50"
                             )}
                         >
-                            {isLoading ? (
+                            {isLoading || isUploading ? (
                                 <Sparkles className="w-4 h-4 animate-spin" />
                             ) : (
                                 <ArrowUp className="w-5 h-5" />

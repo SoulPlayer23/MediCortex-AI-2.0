@@ -7,14 +7,17 @@ import clsx from 'clsx';
 interface Message {
     role: 'user' | 'assistant';
     content: string;
+    attachments?: any[];
 }
 
 interface ChatAreaProps {
     isSidebarOpen: boolean;
     toggleSidebar: () => void;
+    sessionId: string | null;
+    setSessionId: (id: string) => void;
 }
 
-const ChatArea = ({ isSidebarOpen, toggleSidebar }: ChatAreaProps) => {
+const ChatArea = ({ isSidebarOpen, toggleSidebar, sessionId, setSessionId }: ChatAreaProps) => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -27,21 +30,77 @@ const ChatArea = ({ isSidebarOpen, toggleSidebar }: ChatAreaProps) => {
         scrollToBottom();
     }, [messages]);
 
-    const handleSend = async (content: string) => {
-        // Add user message
-        const userMsg: Message = { role: 'user', content };
+    useEffect(() => {
+        if (sessionId) {
+            fetchMessages(sessionId);
+        } else {
+            setMessages([]);
+        }
+    }, [sessionId]);
+
+    const fetchMessages = async (id: string) => {
+        try {
+            const res = await fetch(`http://localhost:8001/chats/${id}`);
+            if (res.ok) {
+                const data = await res.json();
+                setMessages(data);
+            }
+        } catch (e) {
+            console.error("Failed to fetch messages", e);
+        }
+    };
+
+    const handleSend = async (content: string, attachments: any[] = []) => {
+        // Add user message immediately
+        const userMsg: Message = { role: 'user', content, attachments };
         setMessages((prev) => [...prev, userMsg]);
         setIsLoading(true);
 
-        // Simulate AI delay
-        setTimeout(() => {
+        try {
+            // Append attachment URLs to content if any (temporary solution for orchestrator context)
+            let finalContent = content;
+            if (attachments.length > 0) {
+                finalContent += "\n\n[Attachments]:\n" + attachments.map(a => `${a.filename}: ${a.url}`).join("\n");
+            }
+
+            const response = await fetch('http://localhost:8001/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: finalContent,
+                    session_id: sessionId
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error(`Error: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+
+            // If new session started, update ID
+            if (data.session_id && data.session_id !== sessionId) {
+                setSessionId(data.session_id);
+            }
+
             const aiMsg: Message = {
                 role: 'assistant',
-                content: `I received: "**${content}**".\n\nI can help you analyze this request.`
+                content: data.response
             };
             setMessages((prev) => [...prev, aiMsg]);
+
+        } catch (error) {
+            console.error("API Call Failed:", error);
+            const errorMsg: Message = {
+                role: 'assistant',
+                content: "I'm sorry, I'm having trouble connecting to the Orchestrator. Please ensure the backend is running on port 8001."
+            };
+            setMessages((prev) => [...prev, errorMsg]);
+        } finally {
             setIsLoading(false);
-        }, 1500);
+        }
     };
 
     const isEmptyState = messages.length === 0;

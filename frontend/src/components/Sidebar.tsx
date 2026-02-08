@@ -4,10 +4,19 @@ import { Plus, MessageSquare, PanelLeftClose, Settings, LogOut, HelpCircle, User
 interface SidebarProps {
     isOpen: boolean;
     toggleSidebar: () => void;
+    onSelectChat: (sessionId: string | null) => void;
+    currentSessionId: string | null;
 }
 
-const Sidebar = ({ isOpen, toggleSidebar }: SidebarProps) => {
+interface ChatSession {
+    id: string;
+    title: string;
+    updated_at: string;
+}
+
+const Sidebar = ({ isOpen, toggleSidebar, onSelectChat, currentSessionId }: SidebarProps) => {
     const [showProfileMenu, setShowProfileMenu] = useState(false);
+    const [sessions, setSessions] = useState<ChatSession[]>([]);
     const profileRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -19,6 +28,22 @@ const Sidebar = ({ isOpen, toggleSidebar }: SidebarProps) => {
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
+
+    useEffect(() => {
+        fetchSessions();
+    }, [currentSessionId, isOpen]);
+
+    const fetchSessions = async () => {
+        try {
+            const res = await fetch('http://localhost:8001/chats');
+            if (res.ok) {
+                const data = await res.json();
+                setSessions(data);
+            }
+        } catch (e) {
+            console.error("Failed to fetch chats", e);
+        }
+    };
 
     if (!isOpen) {
         // Render simple collapsed strip
@@ -48,7 +73,9 @@ const Sidebar = ({ isOpen, toggleSidebar }: SidebarProps) => {
             {/* Header: Toggle + New Chat + Search */}
             <div className="flex flex-col gap-2 mb-4">
                 <div className="flex items-center justify-between px-2">
-                    <button className="p-2 -ml-2 rounded-lg hover:bg-[#212121] text-gray-400 hover:text-white transition-colors">
+                    <button
+                        onClick={() => onSelectChat(null)}
+                        className="p-2 -ml-2 rounded-lg hover:bg-[#212121] text-gray-400 hover:text-white transition-colors">
                         <Plus className="w-5 h-5" />
                     </button>
 
@@ -62,7 +89,9 @@ const Sidebar = ({ isOpen, toggleSidebar }: SidebarProps) => {
                 </div>
 
                 <div className="flex flex-col gap-1">
-                    <button className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[#212121] transition-colors text-sm text-[rgb(236,236,241)] text-left group">
+                    <button
+                        onClick={() => onSelectChat(null)}
+                        className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-[#212121] transition-colors text-sm text-[rgb(236,236,241)] text-left group">
                         <div className="flex items-center justify-center w-7 h-7 bg-white text-black rounded-full">
                             <Plus className="w-4 h-4" />
                         </div>
@@ -81,25 +110,15 @@ const Sidebar = ({ isOpen, toggleSidebar }: SidebarProps) => {
             {/* History List */}
             <div className="flex-1 overflow-y-auto overflow-x-hidden mb-2 pr-1 scrollbar-thin">
                 <div className="flex flex-col gap-2">
-                    <h3 className="px-2 text-xs font-medium text-gray-500 mt-2 mb-1">Today</h3>
-                    {[1, 2].map((i) => (
+                    <h3 className="px-2 text-xs font-medium text-gray-500 mt-2 mb-1">Recent</h3>
+                    {sessions.map((session) => (
                         <button
-                            key={i}
-                            className="flex items-center gap-2 px-2 py-2 w-full rounded-lg hover:bg-[#212121] transition-colors text-sm text-[rgb(236,236,241)] group overflow-hidden relative"
+                            key={session.id}
+                            onClick={() => onSelectChat(session.id)}
+                            className={`flex items-center gap-2 px-2 py-2 w-full rounded-lg hover:bg-[#212121] transition-colors text-sm text-[rgb(236,236,241)] group overflow-hidden relative ${currentSessionId === session.id ? 'bg-[#212121]' : ''}`}
                         >
                             <MessageSquare className="w-4 h-4 shrink-0 text-gray-400" />
-                            <span className="truncate flex-1 text-left relative z-10">Previous Conversation {i}</span>
-                        </button>
-                    ))}
-                    <h3 className="px-2 text-xs font-medium text-gray-500 mt-4 mb-1">Yesterday</h3>
-                    {[3, 4, 5].map((i) => (
-                        <button
-                            key={i}
-                            className="flex items-center gap-2 px-2 py-2 w-full rounded-lg hover:bg-[#212121] transition-colors text-sm text-[rgb(236,236,241)] group overflow-hidden relative"
-                        >
-                            <div className="absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-[#171717] to-transparent group-hover:from-[#212121]"></div>
-                            <MessageSquare className="w-4 h-4 shrink-0 text-gray-400" />
-                            <span className="truncate flex-1 text-left relative z-10">Project Discussion {i}</span>
+                            <span className="truncate flex-1 text-left relative z-10">{session.title}</span>
                         </button>
                     ))}
                 </div>
