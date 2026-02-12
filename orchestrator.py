@@ -109,6 +109,7 @@ class AgentState(TypedDict):
     redacted_input: str
     pii_mapping: Dict[str, str]
     context: List[str]
+    history: List[str] # <--- Added history
     messages: List[BaseMessage]
     agent_outputs: Annotated[List[str], operator.add]
     final_output: str
@@ -211,7 +212,7 @@ def node_router(state: AgentState):
         "Available Agents:\n"
         "- 'pubmed': For research, literature, papers.\n"
         "- 'diagnosis': For symptoms, possibilities, differential diagnosis.\n"
-        "- 'report': For lab results, medical reports, text analysis.\n"
+        "- 'report': For lab results, medical reports, text analysis, and image analysis (X-Rays, MRIs, CT scans).\n"
         "- 'patient': For retrieving patient history or records.\n"
         "- 'drug': For medication interactions or contraindications.\n\n"
         "Return ONLY a JSON list of keys, e.g. ['pubmed', 'diagnosis']. If unsure, default to ['pubmed']."
@@ -231,7 +232,7 @@ def node_router(state: AgentState):
         routes = ["diagnosis"]
         
     logger.info(f"➡️ Routing to: {routes}")
-    return {"messages": [AIMessage(content=str(routes))]} 
+    return {"messages": [AIMessage(content=str(routes))]}
 
 def make_agent_node(agent_key: str):
     def _node(state: AgentState):
@@ -241,7 +242,14 @@ def make_agent_node(agent_key: str):
             return {"agent_outputs": [f"Error: Agent '{agent_key}' not found."]}
         
         context_str = "\\n".join(state.get("context", []))
-        enhanced_input = f"{state['redacted_input']}\\n\\nContext from Knowledge Core:\\n{context_str}"
+        history_str = "\\n".join(state.get("history", [])) # <--- Format history
+        
+        # Inject History into Input
+        enhanced_input = (
+            f"Conversation History:\\n{history_str}\\n\\n"
+            f"Current Request: {state['redacted_input']}\\n\\n"
+            f"Context from Knowledge Core:\\n{context_str}"
+        )
         
         try:
             result = agent_executor.invoke({"input": enhanced_input})
@@ -374,11 +382,22 @@ async def chat_endpoint(request: ChatRequest, db: AsyncSession = Depends(get_db)
         # 2. Save User Message
         await chat_service.add_message(db, session_id, "user", request.message)
         
-        # 3. Invoke Orchestrator
-        result = await orchestrator_graph.ainvoke({"input": request.message, "messages": []})
+        # 3. Retrieve History for Context (Last 10 messages, excluding current)
+        full_history = await chat_service.get_messages(db, session_id)
+        # Exclude the very last message (which is the current user request we just added)
+        past_turns = full_history[:-1] 
+        # Format for Agent Context
+        history_context = [f"{m.role.capitalize()}: {m.content}" for m in past_turns[-10:]]
+
+        # 4. Invoke Orchestrator
+        result = await orchestrator_graph.ainvoke({
+            "input": request.message, 
+            "messages": [],
+            "history": history_context # <--- Pass history
+        })
         response_text = result.get("final_output")
         
-        # 4. Save AI Response
+        # 5. Save AI Response
         await chat_service.add_message(db, session_id, "assistant", response_text)
         
         return {

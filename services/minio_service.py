@@ -14,12 +14,16 @@ BUCKET_NAME = "medicortex-uploads"
 class MinioService:
     def __init__(self):
         self.session = aioboto3.Session()
+        logger.info(f"MinIO Config: Endpoint={MINIO_ENDPOINT}, Key={MINIO_ACCESS_KEY}...")
 
     async def ensure_bucket_exists(self):
+        from botocore.client import Config
         async with self.session.client("s3",
             endpoint_url=MINIO_ENDPOINT,
             aws_access_key_id=MINIO_ACCESS_KEY,
             aws_secret_access_key=MINIO_SECRET_KEY,
+            region_name="us-east-1",
+            config=Config(signature_version='s3v4', s3={'addressing_style': 'path'})
         ) as s3:
             try:
                 await s3.head_bucket(Bucket=BUCKET_NAME)
@@ -30,10 +34,13 @@ class MinioService:
                 logger.info(f"✅ Bucket '{BUCKET_NAME}' created.")
 
     async def upload_file(self, file_data: bytes, filename: str, content_type: str) -> Optional[str]:
+        from botocore.client import Config
         async with self.session.client("s3",
             endpoint_url=MINIO_ENDPOINT,
             aws_access_key_id=MINIO_ACCESS_KEY,
             aws_secret_access_key=MINIO_SECRET_KEY,
+            region_name="us-east-1",
+            config=Config(signature_version='s3v4', s3={'addressing_style': 'path'})
         ) as s3:
             try:
                 await s3.put_object(

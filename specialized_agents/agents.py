@@ -35,6 +35,9 @@ class SimpleReactAgent:
         self.template = f"""You are the {name}.
 {system_prompt}
 
+IMPORTANT: You may receive a 'Conversation History' in your input. USE IT to maintain context (e.g., patient age, previous diagnosis). 
+Do not ask for information that has already been provided in the history.
+
 TOOLS:
 ------
 You have access to the following tools:
@@ -138,7 +141,7 @@ report_agent = SimpleReactAgent(
     name="Report Analyzer Agent",
     llm=llm,
     tools=[parse_lab_values],
-    system_prompt="Your goal is to extract and interpret structured data from unstructured medical reports."
+    system_prompt="Your goal is to extract and interpret structured data from unstructured medical reports (PDFs) or medical images (X-Rays, MRIs). For images, analyze the metadata and visual features."
 )
 
 # 4. Patient Retriever Agent
@@ -156,9 +159,9 @@ drug_agent = SimpleReactAgent(
     tools=[check_drug_interactions],
     system_prompt=(
         "Your goal is to identify dangerous drug interactions and contraindications. "
+        "Check the 'Conversation History' for patient conditions (`Prostate Cancer`, `Diabetes`) or previously mentioned drugs. "
         "If a specific medication list is provided, check for interactions between them or with the patient's condition. "
-        "If NO medications are listed in the user query, assume the user is asking about 'Standard Guidelines' for treating the mentioned condition "
-        "and mention any common drug risks associated with treating that condition. "
+        "If NO medications are listed in the user query, look for a condition in the history and provide 'Standard Contraindications' for that condition. "
         "Do NOT ask for clarification unless absolutely necessary."
     )
 )
