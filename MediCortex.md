@@ -1,29 +1,35 @@
 # MediCortex AI 2.0
 
-MediCortex is an advanced medical reasoning system designed to assist healthcare professionals by orchestrating specialized AI agents. It leverages a privacy-first architecture to ensure HIPAA compliance and deterministic execution where possible.
+MediCortex is an advanced medical reasoning system designed to assist healthcare professionals by orchestrating specialized AI agents. It leverages a privacy-first architecture, HIPAA compliance, and a deterministic Agent-to-Agent (A2A) protocol.
 
 ---
 
 ## 🏗️ System Architecture
 
-The system is built on a **Centralized Orchestration Architecture**:
+The system is built on a **Centralized Orchestration Architecture** with strict protocols:
 
-1.  **Orchestration Layer (`orchestrator.py`)**:
-    -   **Context Manager**: Injects conversation history (last 10 turns) into agent prompts for continuity.
-    -   **Privacy Manager**: Uses Microsoft Presidio to redact PII (PHI) before sending data to agents.
-    -   **Router**: Intelligently routes user queries (Text or Image) to the most appropriate specialized agent.
-2.  **Specialized Agents** (`specialized_agents/`):
-    -   **Report Agent**: Analyzes medical reports (PDF) and images (X-Ray, MRI, etc.) using PIL/OpenCV.
-    -   **Diagnosis Agent**: Suggests differential diagnoses based on symptoms.
-    -   **Drug Agent**: Checks for interactions and contraindications.
-    -   **PubMed Agent**: Retrieving medical literature.
-    -   **Patient Agent**: Retrieving secure patient records.
-3.  **Knowledge Core** (`knowledge_core/`):
-    -   Graph-based medical reasoning engine for verifying agent outputs.
+### 1. Orchestration Layer (`orchestrator.py`)
+-   **FastAPI & Structlog**: High-performance API with structured JSON logging (`config.py` managed).
+-   **A2A Protocol**: Communicates with agents using structured `Envelope`s and `AgentCard`s (`specialized_agents/protocols.py`).
+-   **Privacy Manager**: Uses Microsoft Presidio to redact PII (PHI) before sending data to agents.
+-   **Router**: Intelligently routes user queries to the most appropriate specialized agent.
 
-### Data Layer
--   **PostgreSQL**: Stores persistent chat history and session metadata.
--   **MinIO**: High-performance object storage for file uploads (medical reports, images).
+### 2. Specialized Agents (`specialized_agents/`)
+All agents adhere to the **A2A Protocol**, taking an `Envelope` input and returning an `AgentResponse`.
+-   **Report Agent**: Analyzes medical reports (PDF) and images (X-Ray, MRI) using OCR/Vision.
+-   **Diagnosis Agent**: Suggests differential diagnoses based on symptoms.
+-   **Drug Agent**: Checks for interactions and contraindications.
+-   **PubMed Agent**: Retrieving medical literature.
+-   **Patient Agent**: Retrieving secure patient records.
+
+### 3. Tool Layer (`tools/`) & MCP Server
+The system exposes its capabilities via the **Model Context Protocol (MCP)**, allowing external clients (e.g., Claude Desktop) to use its tools directly.
+-   **MCP Server**: `tools/mcp_server.py`
+-   **Tools**: `pubmed_tools.py`, `diagnosis_tools.py`, etc.
+
+### 4. Data Layer
+-   **PostgreSQL**: Stores persistent chat history and session metadata (Schema managed via `database/schema.sql`).
+-   **MinIO**: High-performance object storage for file uploads.
 
 ---
 
@@ -37,13 +43,13 @@ The system is built on a **Centralized Orchestration Architecture**:
 -   OpenAI API Key
 
 ### 1. Environment Setup
-Create a `.env` file in the root directory:
+Create a `.env` file in the root directory (validated by `config.py`):
 ```bash
 OPENAI_API_KEY=your_key_here
 DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/medicortex
-MINIO_ENDPOINT=http://localhost:9000
+MINIO_URL=localhost:9000
 MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadmin123
+MINIO_SECRET_KEY=minioadmin
 ```
 
 ### 2. Backend Dependencies
@@ -52,39 +58,42 @@ Install the required Python packages:
 pip install -r requirements.txt
 ```
 
-### 3. Knowledge Core Assets
+### 3. Database Initialization
+Apply the schema to PostgreSQL:
+```bash
+python -m database.init_db
+```
+
+### 4. Knowledge Core Assets
 Build the optimized graph assets for the medical engine:
 ```bash
 python3 -m knowledge_core.build_fast_assets
-```
-
-### 4. Frontend Dependencies
-Navigate to the frontend directory and install dependencies:
-```bash
-cd frontend
-npm install
 ```
 
 ---
 
 ## 🏃‍♂️ Running the Application
 
-### 1. Start Services (Database & MinIO)
-Ensure PostgreSQL and MinIO are running.
-
-### 2. Start the Backend Orchestrator
+### 1. Start the Backend Orchestrator
 To start the FastAPI server:
 ```bash
-# From the root directory
-python3 orchestrator.py
+python orchestrator.py
 ```
 -   **Server**: `http://0.0.0.0:8001`
 -   **Docs**: `http://0.0.0.0:8001/docs`
+
+### 2. Start the MCP Server (Optional)
+To run the MCP server for external tool access:
+```bash
+python tools/mcp_server.py
+```
+(Configured via `stdin/stdout` for MCP clients)
 
 ### 3. Start the Frontend
 In a separate terminal:
 ```bash
 cd frontend
+npm install
 npm run dev
 ```
 -   **App**: `http://localhost:5173`
@@ -93,7 +102,7 @@ npm run dev
 
 ## 🏥 Verification & Health Check
 
-We provide a unified health check script to verify all dependent services (Database, Storage, API) in one go.
+We provide a unified health check script to verify all dependent services.
 
 **Run Health Check:**
 ```bash
@@ -115,11 +124,19 @@ python tests/health_check.py
 
 ## 📂 Project Structure
 
--   `orchestrator.py`: Main entry point and API server.
--   `specialized_agents/`: Agent definitions, tools (including Image Analysis), and prompts.
--   `services/`:
-    -   `chat_service.py`: Managing chat history in PostgreSQL.
-    -   `minio_service.py`: Handling file uploads to MinIO.
+-   `orchestrator.py`: Main API server and agent coordinator.
+-   `config.py`: Centralized configuration management (Pydantic).
+-   `specialized_agents/`:
+    -   `base.py`: Base agent class enforcing A2A.
+    -   `protocols.py`: Pydantic models for Agent Cards and Envelopes.
+    -   `*_agent.py`: Individual agent logic.
+-   `tools/`:
+    -   `*_tools.py`: Domain-specific tool logic.
+    -   `mcp_server.py`: Model Context Protocol server.
+-   `database/`:
+    -   `models.py`: SQLAlchemy models.
+    -   `schema.sql`: Source of truth for database schema.
+    -   `init_db.py`: Schema migration script.
+-   `schemas/`: Pydantic models for API requests/responses.
+-   `services/`: Business logic for Chat and Storage.
 -   `knowledge_core/`: Medical knowledge graph logic.
--   `frontend/`: React application.
--   `tests/`: Contains `health_check.py` for system verification.
