@@ -11,21 +11,24 @@ The system is built on a **Centralized Orchestration Architecture** with strict 
 ### 1. Orchestration Layer (`orchestrator.py`)
 -   **FastAPI & Structlog**: High-performance API with structured JSON logging (`config.py` managed).
 -   **A2A Protocol**: Communicates with agents using structured `Envelope`s and `AgentCard`s (`specialized_agents/protocols.py`).
+-   **Trace ID Propagation**: End-to-end `trace_id` bound to `structlog` context and passed through every `Envelope` (A2A §5.1).
+-   **Agent Card Discovery**: `GET /.well-known/agent-cards` exposes all registered agent cards for A2A discovery.
 -   **Privacy Manager**: Uses Microsoft Presidio to redact PII (PHI) before sending data to agents.
--   **Router**: Intelligently routes user queries to the most appropriate specialized agent.
+-   **Router**: Intelligently routes user queries to specialized agents (capped at 3 concurrent agents per request).
 
 ### 2. Specialized Agents (`specialized_agents/`)
 All agents adhere to the **A2A Protocol**, taking an `Envelope` input and returning an `AgentResponse`.
 -   **Report Agent**: Analyzes medical reports (PDF) and images (X-Ray, MRI) using OCR/Vision.
 -   **Diagnosis Agent**: Suggests differential diagnoses based on symptoms.
 -   **Drug Agent**: Checks for interactions and contraindications.
--   **PubMed Agent**: Retrieving medical literature.
+-   **PubMed Agent**: Searches NCBI PubMed for research papers and crawls trusted medical websites (Mayo Clinic, NIH, CDC, WHO, etc.) for clinical guidance.
 -   **Patient Agent**: Retrieving secure patient records.
 
 ### 3. Tool Layer (`tools/`) & MCP Server
 The system exposes its capabilities via the **Model Context Protocol (MCP)**, allowing external clients (e.g., Claude Desktop) to use its tools directly.
 -   **MCP Server**: `tools/mcp_server.py`
--   **Tools**: `pubmed_tools.py`, `diagnosis_tools.py`, etc.
+-   **MCP Resources**: Agent cards exposed via `agents://medicortex/{name}/card` URI scheme (MCP §3.1).
+-   **Tools**: `pubmed_search_tools.py` (NCBI PubMed API), `medical_webcrawler_tools.py` (trusted medical site crawler), `diagnosis_tools.py`, etc.
 
 ### 4. Data Layer
 -   **PostgreSQL**: Stores persistent chat history and session metadata (Schema managed via `database/schema.sql`).
@@ -131,8 +134,10 @@ python tests/health_check.py
     -   `protocols.py`: Pydantic models for Agent Cards and Envelopes.
     -   `*_agent.py`: Individual agent logic.
 -   `tools/`:
-    -   `*_tools.py`: Domain-specific tool logic.
-    -   `mcp_server.py`: Model Context Protocol server.
+    -   `pubmed_search_tools.py`: NCBI PubMed E-utilities API search.
+    -   `medical_webcrawler_tools.py`: Trusted medical website crawler.
+    -   `diagnosis_tools.py`, `drug_tools.py`, etc.: Domain-specific tools.
+    -   `mcp_server.py`: Model Context Protocol server with Resources.
 -   `database/`:
     -   `models.py`: SQLAlchemy models.
     -   `schema.sql`: Source of truth for database schema.

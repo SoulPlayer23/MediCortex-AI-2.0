@@ -110,6 +110,7 @@ privacy_manager = PrivacyManager()
 # ==========================================
 class AgentState(TypedDict):
     input: str
+    trace_id: str  # A2A §5.1 — propagated across all agent hops
     redacted_input: str
     pii_mapping: Dict[str, str]
     context: List[str]
@@ -148,9 +149,14 @@ except Exception as e:
 # 🕸️ LANGGRAPH NODES
 # ==========================================
 def node_analyze_privacy(state: AgentState):
-    logger.info("NODE: ANALYZE PRIVACY")
+    import uuid as _uuid
+    trace_id = state.get("trace_id") or str(_uuid.uuid4())
+    # A2A §5.1 — Bind trace_id to structured log context for full-chain tracing
+    structlog.contextvars.bind_contextvars(trace_id=trace_id)
+    logger.info("NODE: ANALYZE PRIVACY", trace_id=trace_id)
     redacted, mapping = privacy_manager.redact_pii(state['input'])
     return {
+        "trace_id": trace_id,
         "redacted_input": redacted,
         "pii_mapping": mapping,
         "messages": [HumanMessage(content=redacted)],
@@ -211,7 +217,8 @@ def node_router(state: AgentState):
         "You are the MediCortex Orchestrator. Analyze the user request and select the BEST specialized agents "
         "to handle it. \n"
         "Available Agents:\n"
-        "- 'pubmed': For research, literature, papers.\n"
+        "- 'pubmed': For medical research papers (PubMed database) AND medical articles from trusted websites "
+        "(Mayo Clinic, NIH, CDC, WHO, WebMD, Medscape, etc.). Use for any research, literature, or clinical guidance queries.\n"
         "- 'diagnosis': For symptoms, possibilities, differential diagnosis.\n"
         "- 'report': For lab results, medical reports, text analysis, and image analysis (X-Rays, MRIs, CT scans).\n"
         "- 'patient': For retrieving patient history or records.\n"
@@ -251,9 +258,10 @@ def make_agent_node(agent_key: str):
             f"Context from Knowledge Core:\n{context_str}"
         )
         
-        # A2A Protocol: Create Envelope
+        # A2A Protocol: Create Envelope with trace_id propagation (A2A §5.1)
         try:
             envelope = Envelope(
+                trace_id=state.get("trace_id", ""),
                 sender_id="orchestrator",
                 receiver_id=agent_key,
                 payload={"input": enhanced_input}
@@ -309,11 +317,16 @@ def node_restore_privacy(state: AgentState):
 # ==========================================
 # 🚀 GRAPH CONSTRUCTION
 # ==========================================
+# A2A §4.1 — Maximum agents per request (circuit breaker)
+MAX_CONCURRENT_AGENTS = 3
+
 def route_decision(state: AgentState):
     last_msg = state["messages"][-1].content
     try:
         routes = eval(last_msg) 
         valid_routes = [r for r in routes if r in AGENT_REGISTRY]
+        # A2A §4.1 — Circuit breaker: cap concurrent agent calls
+        valid_routes = valid_routes[:MAX_CONCURRENT_AGENTS]
         return valid_routes if valid_routes else ["diagnosis"]
     except:
         return ["diagnosis"] 
@@ -439,6 +452,24 @@ async def upload_file(file: UploadFile = File(...)):
 @app.get("/health", response_model=HealthResponse)
 async def health():
     return HealthResponse(status="online", agents=list(AGENT_REGISTRY.keys()))
+
+# ── A2A §1.1 — Agent Card Discovery Endpoint ────────────────────────
+@app.get("/.well-known/agent-cards")
+async def get_agent_cards():
+    """Expose all registered agent cards for A2A discovery."""
+    cards = {}
+    for name, agent in AGENT_REGISTRY.items():
+        card = agent.get_card()
+        cards[name] = card.model_dump()
+    return cards
+
+@app.get("/.well-known/agent-cards/{agent_name}")
+async def get_agent_card(agent_name: str):
+    """Expose a specific agent's card for A2A discovery."""
+    agent = AGENT_REGISTRY.get(agent_name)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent '{agent_name}' not found")
+    return agent.get_card().model_dump()
 
 if __name__ == "__main__":
     logger.info("Starting Orchestrator Server manually", port=8001)
