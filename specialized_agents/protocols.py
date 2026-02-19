@@ -34,6 +34,7 @@ class AgentResponse(BaseModel):
     """
     envelope_id: str # Reference to the request envelope ID (idempotency_key)
     output: Any = Field(..., description="The result of the agent's work")
+    thinking: List[str] = Field(default_factory=list, description="Reasoning steps or scratchpad traces")
     error: Optional[str] = None
     usage: Dict[str, int] = Field(default_factory=dict, description="Token usage or cost metrics")
     timestamp: datetime = Field(default_factory=datetime.utcnow)

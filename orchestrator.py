@@ -7,6 +7,7 @@ import operator
 import json
 import uvicorn
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from contextlib import asynccontextmanager
@@ -109,16 +110,20 @@ privacy_manager = PrivacyManager()
 # 🧠 AGENT STATE DEFINITION
 # ==========================================
 class AgentState(TypedDict):
+    """
+    State allowed to propagate through the graph.
+    """
     input: str
-    trace_id: str  # A2A §5.1 — propagated across all agent hops
     redacted_input: str
     pii_mapping: Dict[str, str]
     context: List[str]
     history: List[str]
-    messages: List[BaseMessage]
+    messages: Annotated[List[BaseMessage], operator.add]
     agent_outputs: Annotated[List[str], operator.add]
+    agent_thoughts: Annotated[List[str], operator.add] # New: Capture thinking steps
     final_output: str
     error: Optional[str]
+    trace_id: Optional[str]
 
 # ==========================================
 # 🛠️ TOOLS & LLM
@@ -219,10 +224,14 @@ def node_router(state: AgentState):
         "Available Agents:\n"
         "- 'pubmed': For medical research papers (PubMed database) AND medical articles from trusted websites "
         "(Mayo Clinic, NIH, CDC, WHO, WebMD, Medscape, etc.). Use for any research, literature, or clinical guidance queries.\n"
-        "- 'diagnosis': For symptoms, possibilities, differential diagnosis.\n"
-        "- 'report': For lab results, medical reports, text analysis, and image analysis (X-Rays, MRIs, CT scans).\n"
-        "- 'patient': For retrieving patient history or records.\n"
-        "- 'drug': For medication interactions or contraindications.\n\n"
+        "- 'diagnosis': For symptoms, possibilities, differential diagnosis. Uses symptom analysis AND web crawling "
+        "of trusted medical sites to suggest conditions and provide evidence-based reasoning.\n"
+        "- 'report': For lab results, medical reports (PDF extraction), and medical image analysis "
+        "(X-Rays, MRIs, CT scans via MedGemma vision). Handles both document and image-based reports.\n"
+        "- 'patient': For retrieving patient records, demographics, diagnoses, medications, and history analysis. "
+        "HIPAA-compliant with PII de-identification.\n"
+        "- 'drug': For medication interactions, contraindications, dosage guidelines, and drug recommendations. "
+        "Can also suggest alternative medications and check safety against patient conditions.\n\n"
         "Return ONLY a JSON list of keys, e.g. ['pubmed', 'diagnosis']. If unsure, default to ['pubmed']."
     )
     
@@ -267,19 +276,41 @@ def make_agent_node(agent_key: str):
                 payload={"input": enhanced_input}
             )
             
+            # HIPAA: Pass PII mapping to patient agent for identifier resolution
+            if agent_key == "patient":
+                import json as _json
+                pii_map = state.get("pii_mapping", {})
+                envelope.payload["pii_mapping_json"] = _json.dumps(pii_map)
+                # Also inject the mapping hint into the input so the agent knows about it
+                enhanced_input += f"\n\nPII Mapping (for tool use only): {_json.dumps(pii_map)}"
+                envelope.payload["input"] = enhanced_input
+            
             # Call Agent via Process
             response = agent_executor.process(envelope)
             
+            # Capture thinking steps
+            thoughts = response.thinking if response.thinking else []
+            formatted_thoughts = [f"**[{agent_key.title()}]**: {t}" for t in thoughts]
+            
             if response.error:
                 logger.error(f"Agent {agent_key} returned error", error=response.error)
-                return {"agent_outputs": [f"## {agent_key.title()} Agent Error\n{response.error}"]}
+                return {
+                    "agent_outputs": [f"## {agent_key.title()} Agent Error\n{response.error}"],
+                    "agent_thoughts": formatted_thoughts
+                }
             
             output = response.output if response.output else "No output generated."
-            return {"agent_outputs": [f"## {agent_key.title()} Agent Response\n{output}"]}
+            return {
+                "agent_outputs": [f"## {agent_key.title()} Agent Response\n{output}"],
+                "agent_thoughts": formatted_thoughts
+            }
             
         except Exception as e:
             logger.error(f"Orchestrator failed to call agent {agent_key}", error=str(e))
-            return {"agent_outputs": [f"## {agent_key.title()} Agent System Error\n{str(e)}"]}
+            return {
+                "agent_outputs": [f"## {agent_key.title()} Agent System Error\n{str(e)}"],
+                "agent_thoughts": [f"**[{agent_key.title()}]**: System Error: {str(e)}"]
+            }
     return _node
 
 node_pubmed = make_agent_node("pubmed")
@@ -385,10 +416,101 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.post("/chat/stream")
+async def chat_stream_endpoint(request: ChatRequest, db: AsyncSession = Depends(get_db)):
+    """
+    Streaming chat endpoint for Server-Sent Events (SSE).
+    Sends 'thought' events for agent reasoning and 'response' event for final output.
+    """
+    async def event_generator():
+        try:
+            logger.info("Received streaming chat request", message_length=len(request.message))
+            
+            # 1. Create/Get Session
+            session_id = request.session_id
+            if not session_id:
+                new_session = await chat_service.create_session(db)
+                session_id = new_session.id
+                yield f"data: {json.dumps({'type': 'session_id', 'content': str(session_id)})}\n\n"
+            
+            # 2. Save User Message
+            await chat_service.add_message(db, str(session_id), "user", request.message)
+            
+            # 3. Retrieve History
+            full_history = await chat_service.get_messages(db, str(session_id))
+            past_turns = full_history[:-1] 
+            history_context = [f"{m.role.capitalize()}: {m.content}" for m in past_turns[-10:]]
+
+            # 4. Stream Orchestrator Events
+            agent_thoughts = []
+            final_output = ""
+
+            # Emit initial "thinking" state to show immediate activity
+            yield f"data: {json.dumps({'type': 'thought', 'content': 'Querying Knowledge Core...'})}\n\n"
+
+            async for event in orchestrator_graph.astream_events(
+                {
+                    "input": request.message, 
+                    "messages": [],
+                    "history": history_context,
+                    "agent_thoughts": []
+                },
+                version="v2"
+            ):
+                event_type = event["event"]
+                
+                # Capture Agent Thoughts (on_chain_end from agent nodes)
+                if event_type == "on_chain_end":
+                    data = event["data"].get("output")
+                    if data and isinstance(data, dict) and "agent_thoughts" in data:
+                        thoughts = data["agent_thoughts"]
+                        for thought in thoughts:
+                            if thought not in agent_thoughts: # Avoid duplicates
+                                agent_thoughts.append(thought)
+                                yield f"data: {json.dumps({'type': 'thought', 'content': thought})}\n\n"
+                
+                # Capture Token Streaming (for final response) from Aggregator/RestorePrivacy or LLM
+                if event_type == "on_chat_model_stream":
+                    # Check if this stream is from the final aggregator/refiner step
+                    # To be safe, we stream tokens that are NOT part of the routing/internal logic
+                    # A simplified approach is to stream everything and filter, but better to check source.
+                    # Given the graph, 'aggregator' uses LLM.
+                    if event["metadata"].get("langgraph_node") == "aggregator":
+                        chunk = event["data"]["chunk"].content
+                        if chunk:
+                            yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
+                            final_output += chunk
+
+                # Capture Final Output (fallback/confirmation)
+                if event_type == "on_chain_end" and event["name"] == "LangGraph":
+                    # If we missed capturing tokens (e.g. non-LLM aggregator), use final output
+                    # But if we streamed tokens, final_output should match. 
+                    # We'll use the graph's final output for persistence to be safe.
+                    graph_final = event["data"]["output"].get("final_output")
+                    if graph_final and not final_output:
+                         # If we didn't stream anything, send it all at once (fallback)
+                         final_output = graph_final
+                         yield f"data: {json.dumps({'type': 'response', 'content': final_output})}\n\n"
+                    elif graph_final:
+                         # Ensure persistence uses the clean final state
+                         final_output = graph_final
+
+            # 5. Save AI Response to DB (only once)
+            if final_output:
+                 await chat_service.add_message(db, str(session_id), "assistant", final_output, thinking=agent_thoughts)
+            
+            yield "data: [DONE]\n\n"
+
+        except Exception as e:
+            logger.error("Streaming error", error=str(e))
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     """
-    Main chat endpoint for the Frontend.
+    Legacy non-streaming chat endpoint.
     """
     try:
         logger.info("Received chat request", message_length=len(request.message))
@@ -411,16 +533,19 @@ async def chat_endpoint(request: ChatRequest, db: AsyncSession = Depends(get_db)
         result = await orchestrator_graph.ainvoke({
             "input": request.message, 
             "messages": [],
-            "history": history_context
+            "history": history_context,
+            "agent_thoughts": [] # Initialize empty list
         })
         response_text = result.get("final_output")
+        agent_thinking = result.get("agent_thoughts", [])
         
         # 5. Save AI Response
-        await chat_service.add_message(db, str(session_id), "assistant", response_text)
+        await chat_service.add_message(db, str(session_id), "assistant", response_text, thinking=agent_thinking)
         
         return ChatResponse(
             response=response_text,
-            session_id=session_id
+            session_id=session_id,
+            thinking=agent_thinking
         )
     except Exception as e:
         logger.error("Error processing request", error=str(e))

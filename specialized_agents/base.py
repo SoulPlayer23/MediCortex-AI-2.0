@@ -101,10 +101,11 @@ New input: {{input}}
             )
 
         try:
-            output = self._execute_rect_loop(user_input)
+            output, thinking_steps = self._execute_rect_loop(user_input)
             return AgentResponse(
                 envelope_id=envelope.idempotency_key,
-                output=output
+                output=output,
+                thinking=thinking_steps
             )
         except Exception as e:
             logger.error(f"[{self.name}] Error processing request: {e}")
@@ -127,17 +128,21 @@ New input: {{input}}
         resp = self.process(env)
         if resp.error:
             raise Exception(resp.error)
-        return {"output": resp.output}
+        return {"output": resp.output, "thinking": resp.thinking}
 
-    def _execute_rect_loop(self, user_input: str) -> str:
+    def _execute_rect_loop(self, user_input: str) -> (str, List[str]):
         scratchpad = ""
+        thinking_steps = []
         
         for i in range(self.max_iterations):
             # Construct Prompt
             prompt = self.template.format(input=user_input, agent_scratchpad=scratchpad)
             
             # Call LLM
-            logger.info(f"[{self.name}] Thinking (Step {i+1})...")
+            step_msg = f"Thinking (Step {i+1})..."
+            logger.info(f"[{self.name}] {step_msg}")
+            # thinking_steps.append(step_msg) # Optional: add step header to thinking
+            
             response = self.llm.invoke(prompt)
             
             # Parse Response
@@ -145,8 +150,18 @@ New input: {{input}}
             input_match = re.search(r"Action Input:\s*(.+)", response)
             final_answer_match = re.search(r"Final Answer:\s*(.+)", response, re.DOTALL)
             
+            thought_match = re.search(r"Thought:\s*(.+?)(?=Action:|Final Answer:|$)", response, re.DOTALL)
+            if thought_match:
+                thought_content = thought_match.group(1).strip()
+                thinking_steps.append(thought_content)
+            elif "Thought:" in response:
+                 # Fallback if regex misses but Thought exists
+                 parts = response.split("Thought:")
+                 if len(parts) > 1:
+                     thinking_steps.append(parts[1].split("Action:")[0].strip())
+            
             if final_answer_match:
-                return final_answer_match.group(1).strip()
+                return final_answer_match.group(1).strip(), thinking_steps
             
             if action_match and input_match:
                 action = action_match.group(1).strip()
@@ -156,24 +171,31 @@ New input: {{input}}
                 action = action.strip("[]")
                 
                 tool = self.tools.get(action)
+                observation_msg = ""
                 if tool:
                     logger.info(f"[{self.name}] Calling Tool: {action} with '{action_input}'")
+                    thinking_steps.append(f"**Action**: Calling tool `{action}` with input `{action_input}`")
                     try:
                         observation = tool.invoke(action_input)
+                        observation_msg = f"Tool Output: {str(observation)[:200]}..." # Truncate for summary
                     except Exception as e:
                         observation = f"Error: {str(e)}"
+                        observation_msg = f"Tool Error: {str(e)}"
                 else:
                     observation = f"Error: Tool '{action}' not found."
+                    observation_msg = f"Error: Tool '{action}' not found."
                 
+                thinking_steps.append(f"**Observation**: {observation_msg}")
+
                 # Update scratchpad
                 scratchpad += f"{response}\nObservation: {observation}\n"
                 continue
             
             # Fallback
             if "Thought:" not in response and "Action:" not in response:
-                 return response.strip()
+                 return response.strip(), thinking_steps
             
             # If stuck
             scratchpad += f"{response}\nObservation: Could not parse action. Review format.\n"
 
-        return "Agent reached max iterations without final answer."
+        return "Agent reached max iterations without final answer.", thinking_steps

@@ -18,17 +18,29 @@ The system is built on a **Centralized Orchestration Architecture** with strict 
 
 ### 2. Specialized Agents (`specialized_agents/`)
 All agents adhere to the **A2A Protocol**, taking an `Envelope` input and returning an `AgentResponse`.
--   **Report Agent**: Analyzes medical reports (PDF) and images (X-Ray, MRI) using OCR/Vision.
--   **Diagnosis Agent**: Suggests differential diagnoses based on symptoms.
--   **Drug Agent**: Checks for interactions and contraindications.
+-   **Report Agent**: Extracts text from PDF reports and analyzes medical images (X-ray, MRI, CT) via MedGemma vision. Provides structured clinical interpretation.
+-   **Diagnosis Agent**: Suggests differential diagnoses based on symptom analysis and trusted medical web crawling.
+-   **Drug Agent**: Checks interactions, contraindications, dosage, and recommendations via trusted pharmacology web search.
 -   **PubMed Agent**: Searches NCBI PubMed for research papers and crawls trusted medical websites (Mayo Clinic, NIH, CDC, WHO, etc.) for clinical guidance.
--   **Patient Agent**: Retrieving secure patient records.
+-   **Patient Agent**: HIPAA-compliant patient record retrieval and clinical history analysis (MedGemma-powered).
 
 ### 3. Tool Layer (`tools/`) & MCP Server
 The system exposes its capabilities via the **Model Context Protocol (MCP)**, allowing external clients (e.g., Claude Desktop) to use its tools directly.
 -   **MCP Server**: `tools/mcp_server.py`
 -   **MCP Resources**: Agent cards exposed via `agents://medicortex/{name}/card` URI scheme (MCP §3.1).
--   **Tools**: `pubmed_search_tools.py` (NCBI PubMed API), `medical_webcrawler_tools.py` (trusted medical site crawler), `diagnosis_tools.py`, etc.
+-   **Tools**:
+    -   `pubmed_search_tools.py`: NCBI PubMed API keys.
+    -   `medical_webcrawler_tools.py`: General trusted medical site crawler.
+    -   `symptom_analysis_tools.py`: Structured symptom parsing & context integration.
+    -   `diagnosis_webcrawler_tools.py`: Specialized crawler for diagnostic criteria (UpToDate, Merck, etc.).
+    -   `patient_retriever_tools.py`: HIPAA-compliant patient record retriever with PII resolution.
+    -   `patient_history_analyzer_tools.py`: MedGemma-powered clinical history analyzer.
+    -   `drug_interaction_tools.py`: Drug-drug interaction checker (Drugs.com, RxList, etc.).
+    -   `drug_recommendation_tools.py`: Drug recommendation, dosage, and alternatives.
+    -   `document_extraction_tools.py`: PDF report → Markdown text extraction.
+    -   `image_extraction_tools.py`: Medical image analysis via MedGemma vision.
+    -   `report_analysis_tools.py`: Clinical interpretation of extracted content.
+    -   Other domain-specific tools.
 
 ### 4. Data Layer
 -   **PostgreSQL**: Stores persistent chat history and session metadata (Schema managed via `database/schema.sql`).
@@ -136,7 +148,9 @@ python tests/health_check.py
 -   `tools/`:
     -   `pubmed_search_tools.py`: NCBI PubMed E-utilities API search.
     -   `medical_webcrawler_tools.py`: Trusted medical website crawler.
-    -   `diagnosis_tools.py`, `drug_tools.py`, etc.: Domain-specific tools.
+    -   `diagnosis_tools.py`, `patient_retriever_tools.py`, `patient_history_analyzer_tools.py`
+    -   `drug_interaction_tools.py`, `drug_recommendation_tools.py`
+    -   `document_extraction_tools.py`, `image_extraction_tools.py`, `report_analysis_tools.py`
     -   `mcp_server.py`: Model Context Protocol server with Resources.
 -   `database/`:
     -   `models.py`: SQLAlchemy models.

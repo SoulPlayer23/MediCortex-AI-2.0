@@ -19,6 +19,7 @@ class MessageResponse(BaseModel):
     content: str
     timestamp: datetime
     attachments: List[Any] = Field(default_factory=list) # JSONB content
+    thinking: List[str] = Field(default_factory=list) # JSONB content
     
     model_config = ConfigDict(from_attributes=True)
 
@@ -33,6 +34,7 @@ class SessionResponse(BaseModel):
 class ChatResponse(BaseModel):
     response: str
     session_id: UUID
+    thinking: List[str] = Field(default_factory=list)
 
 class UploadResponse(BaseModel):
     url: str

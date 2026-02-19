@@ -14,10 +14,15 @@ from mcp.server.stdio import stdio_server
 # Import tools
 from tools.pubmed_search_tools import search_pubmed
 from tools.medical_webcrawler_tools import crawl_medical_articles
-from tools.diagnosis_tools import consult_medical_guidelines
-from tools.report_tools import parse_lab_values
-from tools.patient_tools import search_patient_records
-from tools.drug_tools import check_drug_interactions
+from tools.symptom_analysis_tools import analyze_symptoms
+from tools.diagnosis_webcrawler_tools import crawl_diagnosis_articles
+from tools.document_extraction_tools import extract_document_text
+from tools.image_extraction_tools import extract_image_findings
+from tools.report_analysis_tools import analyze_report
+from tools.patient_retriever_tools import retrieve_patient_records
+from tools.patient_history_analyzer_tools import analyze_patient_history
+from tools.drug_interaction_tools import check_drug_interactions
+from tools.drug_recommendation_tools import recommend_drugs
 
 # Import agent registry for MCP Resources (MCP §3.1)
 from specialized_agents.agents import AGENT_REGISTRY
@@ -89,47 +94,110 @@ async def handle_list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
-            name="consult_medical_guidelines",
-            description="Consult medical guidelines for symptoms and diagnosis.",
+            name="analyze_symptoms",
+            description="Analyze symptoms and combine with knowledge core context to create a clinical profile.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "symptom": {"type": "string", "description": "Symptom or condition description"}
-                },
-                "required": ["symptom"]
-            },
-        ),
-        types.Tool(
-            name="parse_lab_values",
-            description="Extract structured lab values from medical report text.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "text": {"type": "string", "description": "Report text or content"}
-                },
-                "required": ["text"]
-            },
-        ),
-        types.Tool(
-            name="search_patient_records",
-            description="Search for patient health records.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Patient Name or ID"}
+                    "query": {"type": "string", "description": "User's symptom description"},
+                    "knowledge_context": {"type": "string", "description": "Context from knowledge core"}
                 },
                 "required": ["query"]
             },
         ),
         types.Tool(
-            name="check_drug_interactions",
-            description="Check for drug interactions and contraindications.",
+            name="crawl_diagnosis_articles",
+            description="Search trusted medical sites for differential diagnosis and diagnostic criteria.",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "medication_list": {"type": "string", "description": "List of medications or conditions"}
+                    "query": {"type": "string", "description": "Medical topic or symptom set to research"},
+                    "max_results": {"type": "integer", "description": "Number of articles to return (1-10, default 5)", "default": 5}
                 },
-                "required": ["medication_list"]
+                "required": ["query"]
+            },
+        ),
+        types.Tool(
+            name="extract_document_text",
+            description="Download a PDF report from a URL and extract its text content as Markdown.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_url": {"type": "string", "description": "HTTP/HTTPS URL to PDF file"}
+                },
+                "required": ["file_url"]
+            },
+        ),
+        types.Tool(
+            name="extract_image_findings",
+            description="Download a medical image and analyze it using MedGemma vision (X-rays, MRIs, CT scans).",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "file_url": {"type": "string", "description": "HTTP/HTTPS URL to image file"},
+                    "clinical_context": {"type": "string", "description": "Optional clinical context"}
+                },
+                "required": ["file_url"]
+            },
+        ),
+        types.Tool(
+            name="analyze_report",
+            description="Analyze extracted report content to identify lab values, abnormalities, and clinical significance.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "extracted_content": {"type": "string", "description": "Text from document or image extraction"},
+                    "report_type": {"type": "string", "enum": ["lab_report", "discharge_summary", "imaging", "general"], "default": "general"}
+                },
+                "required": ["extracted_content"]
+            },
+        ),
+        types.Tool(
+            name="retrieve_patient_records",
+            description="Retrieve patient records from the database using a redacted patient identifier. HIPAA-compliant: resolves PII placeholders internally and returns de-identified data.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "redacted_identifier": {"type": "string", "description": "Patient name placeholder (e.g., '<PERSON_1>') or patient ID"},
+                    "pii_mapping_json": {"type": "string", "description": "JSON-encoded PII mapping dict", "default": "{}"}
+                },
+                "required": ["redacted_identifier"]
+            },
+        ),
+        types.Tool(
+            name="analyze_patient_history",
+            description="Analyze a de-identified patient record to identify clinical patterns, risk factors, drug interactions, and care recommendations using MedGemma.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "patient_record": {"type": "string", "description": "De-identified patient record text"}
+                },
+                "required": ["patient_record"]
+            },
+        ),
+        types.Tool(
+            name="check_drug_interactions",
+            description="Check for drug-drug interactions, contraindications, and adverse effects using trusted pharmacology sources.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "medications": {"type": "string", "description": "Comma-separated list of drugs"},
+                    "patient_conditions": {"type": "string", "description": "Optional patient conditions"}
+                },
+                "required": ["medications"]
+            },
+        ),
+        types.Tool(
+            name="recommend_drugs",
+            description="Get drug recommendations, dosage guidelines, or alternatives for a condition.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "condition": {"type": "string", "description": "Medical condition or drug name"},
+                    "query_type": {"type": "string", "enum": ["recommendation", "dosage", "alternatives"], "default": "recommendation"},
+                    "patient_info": {"type": "string", "description": "Optional patient context (e.g., age, renal function)"}
+                },
+                "required": ["condition"]
             },
         ),
     ]
@@ -157,24 +225,57 @@ async def handle_call_tool(
             result = crawl_medical_articles.invoke({"query": query, "max_results": max_results})
             return [types.TextContent(type="text", text=str(result))]
 
-        elif name == "consult_medical_guidelines":
-            symptom = arguments.get("symptom")
-            result = consult_medical_guidelines.invoke(symptom)
-            return [types.TextContent(type="text", text=str(result))]
-
-        elif name == "parse_lab_values":
-            text = arguments.get("text")
-            result = parse_lab_values.invoke(text)
-            return [types.TextContent(type="text", text=str(result))]
-
-        elif name == "search_patient_records":
+        elif name == "analyze_symptoms":
             query = arguments.get("query")
-            result = search_patient_records.invoke(query)
+            knowledge_context = arguments.get("knowledge_context", "")
+            result = analyze_symptoms.invoke({"query": query, "knowledge_context": knowledge_context})
+            return [types.TextContent(type="text", text=str(result))]
+
+        elif name == "crawl_diagnosis_articles":
+            query = arguments.get("query")
+            max_results = arguments.get("max_results", 5)
+            result = crawl_diagnosis_articles.invoke({"query": query, "max_results": max_results})
+            return [types.TextContent(type="text", text=str(result))]
+
+        elif name == "extract_document_text":
+            file_url = arguments.get("file_url")
+            result = extract_document_text.invoke({"file_url": file_url})
+            return [types.TextContent(type="text", text=str(result))]
+
+        elif name == "extract_image_findings":
+            file_url = arguments.get("file_url")
+            context = arguments.get("clinical_context", "")
+            result = extract_image_findings.invoke({"file_url": file_url, "clinical_context": context})
+            return [types.TextContent(type="text", text=str(result))]
+
+        elif name == "analyze_report":
+            content = arguments.get("extracted_content")
+            r_type = arguments.get("report_type", "general")
+            result = analyze_report.invoke({"extracted_content": content, "report_type": r_type})
+            return [types.TextContent(type="text", text=str(result))]
+
+        elif name == "retrieve_patient_records":
+            redacted_identifier = arguments.get("redacted_identifier")
+            pii_mapping_json = arguments.get("pii_mapping_json", "{}")
+            result = retrieve_patient_records.invoke({"redacted_identifier": redacted_identifier, "pii_mapping_json": pii_mapping_json})
+            return [types.TextContent(type="text", text=str(result))]
+
+        elif name == "analyze_patient_history":
+            patient_record = arguments.get("patient_record")
+            result = analyze_patient_history.invoke({"patient_record": patient_record})
             return [types.TextContent(type="text", text=str(result))]
 
         elif name == "check_drug_interactions":
-            meds = arguments.get("medication_list")
-            result = check_drug_interactions.invoke(meds)
+            meds = arguments.get("medications")
+            conditions = arguments.get("patient_conditions", "")
+            result = check_drug_interactions.invoke({"medications": meds, "patient_conditions": conditions})
+            return [types.TextContent(type="text", text=str(result))]
+
+        elif name == "recommend_drugs":
+            condition = arguments.get("condition")
+            q_type = arguments.get("query_type", "recommendation")
+            p_info = arguments.get("patient_info", "")
+            result = recommend_drugs.invoke({"condition": condition, "query_type": q_type, "patient_info": p_info})
             return [types.TextContent(type="text", text=str(result))]
 
         else:
