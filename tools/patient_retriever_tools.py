@@ -40,12 +40,28 @@ _SIMULATED_PATIENTS = {
         ],
         "allergies": ["Penicillin", "Sulfa drugs"],
         "last_visit": "2026-01-28",
-        "vitals_last_recorded": {
-            "blood_pressure": "138/88 mmHg",
-            "heart_rate": "76 bpm",
-            "weight": "92 kg",
-            "bmi": "28.4",
-        },
+        "vitals_history": [
+            {
+                "date": "2026-01-28",
+                "blood_pressure": "138/88 mmHg",
+                "heart_rate": "76 bpm",
+                "temperature": "98.6°F",
+                "respiratory_rate": "16/min",
+                "spo2": "97%",
+                "weight": "92 kg",
+                "bmi": "28.4",
+            },
+            {
+                "date": "2025-10-15",
+                "blood_pressure": "142/92 mmHg",
+                "heart_rate": "80 bpm",
+                "temperature": "98.4°F",
+                "respiratory_rate": "18/min",
+                "spo2": "96%",
+                "weight": "94 kg",
+                "bmi": "29.0",
+            },
+        ],
     },
     "jane doe": {
         "patient_id": "PT-10078",
@@ -62,12 +78,18 @@ _SIMULATED_PATIENTS = {
         ],
         "allergies": ["Aspirin"],
         "last_visit": "2026-02-10",
-        "vitals_last_recorded": {
-            "blood_pressure": "118/74 mmHg",
-            "heart_rate": "68 bpm",
-            "weight": "58 kg",
-            "bmi": "22.1",
-        },
+        "vitals_history": [
+            {
+                "date": "2026-02-10",
+                "blood_pressure": "118/74 mmHg",
+                "heart_rate": "68 bpm",
+                "temperature": "98.2°F",
+                "respiratory_rate": "14/min",
+                "spo2": "98%",
+                "weight": "58 kg",
+                "bmi": "22.1",
+            },
+        ],
     },
     "raj patel": {
         "patient_id": "PT-10135",
@@ -87,12 +109,72 @@ _SIMULATED_PATIENTS = {
         ],
         "allergies": [],
         "last_visit": "2026-02-01",
-        "vitals_last_recorded": {
-            "blood_pressure": "142/90 mmHg",
-            "heart_rate": "72 bpm",
-            "weight": "85 kg",
-            "bmi": "27.8",
-        },
+        "vitals_history": [
+            {
+                "date": "2026-02-01",
+                "blood_pressure": "142/90 mmHg",
+                "heart_rate": "72 bpm",
+                "temperature": "98.8°F",
+                "respiratory_rate": "17/min",
+                "spo2": "95%",
+                "weight": "85 kg",
+                "bmi": "27.8",
+            },
+            {
+                "date": "2025-11-10",
+                "blood_pressure": "148/94 mmHg",
+                "heart_rate": "78 bpm",
+                "temperature": "98.6°F",
+                "respiratory_rate": "18/min",
+                "spo2": "94%",
+                "weight": "87 kg",
+                "bmi": "28.5",
+            },
+            {
+                "date": "2025-08-20",
+                "blood_pressure": "150/96 mmHg",
+                "heart_rate": "82 bpm",
+                "temperature": "98.4°F",
+                "respiratory_rate": "19/min",
+                "spo2": "94%",
+                "weight": "89 kg",
+                "bmi": "29.1",
+            },
+        ],
+    },
+    "maria garcia": {
+        "patient_id": "PT-10201",
+        "age": 55,
+        "sex": "Female",
+        "blood_type": "AB+",
+        "diagnoses": [
+            {"condition": "Rheumatoid Arthritis", "diagnosed": "2016-02-18", "status": "Active"},
+            {"condition": "Osteoporosis", "diagnosed": "2021-09-30", "status": "Under Treatment"},
+            {"condition": "Hypothyroidism", "diagnosed": "2013-05-22", "status": "Managed"},
+            {"condition": "Gastroesophageal Reflux Disease", "diagnosed": "2020-03-10", "status": "Active"},
+        ],
+        "medications": [
+            {"name": "Methotrexate", "dosage": "15mg", "frequency": "Once weekly"},
+            {"name": "Folic Acid", "dosage": "1mg", "frequency": "Once daily"},
+            {"name": "Alendronate", "dosage": "70mg", "frequency": "Once weekly"},
+            {"name": "Levothyroxine", "dosage": "75mcg", "frequency": "Once daily before breakfast"},
+            {"name": "Omeprazole", "dosage": "20mg", "frequency": "Once daily"},
+            {"name": "Calcium + Vitamin D", "dosage": "600mg/400IU", "frequency": "Twice daily"},
+        ],
+        "allergies": ["NSAIDs", "Codeine"],
+        "last_visit": "2026-02-20",
+        "vitals_history": [
+            {
+                "date": "2026-02-20",
+                "blood_pressure": "128/82 mmHg",
+                "heart_rate": "74 bpm",
+                "temperature": "98.4°F",
+                "respiratory_rate": "15/min",
+                "spo2": "98%",
+                "weight": "68 kg",
+                "bmi": "25.6",
+            },
+        ],
     },
 }
 
@@ -116,8 +198,10 @@ def _resolve_identifier(redacted_identifier: str, pii_mapping_json: str) -> str:
     return redacted_identifier
 
 
-def _redact_record(record: dict, real_name: str, placeholder: str) -> str:
-    """Format a patient record and re-redact the real name with the placeholder."""
+def _format_record(record: dict, placeholder: str) -> str:
+    """Format a patient record as human-readable Markdown with the placeholder."""
+    latest_vitals = record["vitals_history"][0] if record.get("vitals_history") else {}
+
     lines = [
         f"## Patient Record [{placeholder}]",
         f"- **Patient ID:** {record['patient_id']}",
@@ -129,8 +213,18 @@ def _redact_record(record: dict, real_name: str, placeholder: str) -> str:
         "",
         "### Vitals (Last Recorded)",
     ]
-    for k, v in record["vitals_last_recorded"].items():
+    for k, v in latest_vitals.items():
+        if k == "date":
+            continue
         lines.append(f"- **{k.replace('_', ' ').title()}:** {v}")
+
+    if len(record.get("vitals_history", [])) > 1:
+        lines.append("")
+        lines.append("### Vitals History")
+        for visit in record["vitals_history"][1:]:
+            lines.append(f"- **{visit.get('date', 'N/A')}**: BP {visit.get('blood_pressure', 'N/A')}, "
+                         f"HR {visit.get('heart_rate', 'N/A')}, SpO2 {visit.get('spo2', 'N/A')}, "
+                         f"Weight {visit.get('weight', 'N/A')}")
 
     lines.append("")
     lines.append("### Diagnoses")
@@ -142,13 +236,16 @@ def _redact_record(record: dict, real_name: str, placeholder: str) -> str:
     for m in record["medications"]:
         lines.append(f"- {m['name']} {m['dosage']} — {m['frequency']}")
 
-    result = "\n".join(lines)
+    return "\n".join(lines)
 
-    # Re-redact: replace any occurrence of the real name with the placeholder
+
+def _redact_output(text: str, real_name: str, placeholder: str) -> str:
+    """Re-redact: replace any occurrence of the real name with the placeholder."""
     if real_name and placeholder:
-        result = result.replace(real_name, placeholder)
-
-    return result
+        text = text.replace(real_name, placeholder)
+        # Also handle case-insensitive replacement for partial matches
+        text = re.sub(re.escape(real_name), placeholder, text, flags=re.IGNORECASE)
+    return text
 
 
 @tool
@@ -160,6 +257,9 @@ def retrieve_patient_records(redacted_identifier: str, pii_mapping_json: str = "
     returned record is DE-IDENTIFIED — the real name is replaced with the redacted
     placeholder before being returned to the agent.
 
+    The output includes both a structured JSON block (for downstream tool consumption)
+    and a human-readable Markdown summary.
+
     Use this tool when the user asks about a specific patient's records, demographics,
     diagnoses, medications, or vitals.
 
@@ -169,7 +269,8 @@ def retrieve_patient_records(redacted_identifier: str, pii_mapping_json: str = "
                           automatically by the orchestrator.
 
     Returns:
-        De-identified patient record with demographics, diagnoses, medications, and vitals.
+        De-identified patient record with demographics, diagnoses, medications, vitals,
+        and a structured JSON block for downstream tool use.
     """
     logger.info("patient_retrieval_start", redacted_identifier=redacted_identifier)
 
@@ -194,7 +295,32 @@ def retrieve_patient_records(redacted_identifier: str, pii_mapping_json: str = "
             f"Please verify the patient name or ID and try again."
         )
 
-    # Step 3: Format and re-redact before returning
-    result = _redact_record(patient, real_identifier, redacted_identifier)
+    # Step 3: Build structured JSON (de-identified — uses placeholder, not real name)
+    structured = {
+        "patient_id": patient["patient_id"],
+        "placeholder": redacted_identifier,
+        "age": patient["age"],
+        "sex": patient["sex"],
+        "blood_type": patient["blood_type"],
+        "allergies": patient["allergies"],
+        "diagnoses": patient["diagnoses"],
+        "medications": patient["medications"],
+        "vitals_history": patient.get("vitals_history", []),
+        "last_visit": patient["last_visit"],
+    }
+
+    # Step 4: Format human-readable markdown
+    markdown = _format_record(patient, redacted_identifier)
+
+    # Step 5: Combine structured + readable output
+    result = (
+        f"<!-- STRUCTURED_DATA_START -->\n"
+        f"```json\n{json.dumps(structured, indent=2)}\n```\n"
+        f"<!-- STRUCTURED_DATA_END -->\n\n"
+        f"{markdown}"
+    )
+
+    # Step 6: Re-redact before returning
+    result = _redact_output(result, real_identifier, redacted_identifier)
     logger.info("patient_retrieval_complete", redacted_identifier=redacted_identifier)
     return result

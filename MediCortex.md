@@ -13,38 +13,72 @@ The system is built on a **Centralized Orchestration Architecture** with strict 
 -   **A2A Protocol**: Communicates with agents using structured `Envelope`s and `AgentCard`s (`specialized_agents/protocols.py`).
 -   **Trace ID Propagation**: End-to-end `trace_id` bound to `structlog` context and passed through every `Envelope` (A2A §5.1).
 -   **Agent Card Discovery**: `GET /.well-known/agent-cards` exposes all registered agent cards for A2A discovery.
--   **Privacy Manager**: Uses Microsoft Presidio to redact PII (PHI) before sending data to agents.
--   **Router**: Intelligently routes user queries to specialized agents (capped at 3 concurrent agents per request).
+-   **Privacy Manager**: Uses Microsoft Presidio to redact PII (PHI) before routing to agents. Real identifiers are restored only at the final `node_restore_privacy` step — never exposed to external LLMs (GPT).
+-   **Router**: Intelligently routes user queries to specialized agents (capped at 3 concurrent agents per request via A2A §4.1 circuit breaker).
+-   **SSE Streaming**: `/chat/stream` endpoint streams agent thoughts and response tokens to the frontend in real-time via Server-Sent Events.
 
 ### 2. Specialized Agents (`specialized_agents/`)
-All agents adhere to the **A2A Protocol**, taking an `Envelope` input and returning an `AgentResponse`.
--   **Report Agent**: Extracts text from PDF reports and analyzes medical images (X-ray, MRI, CT) via MedGemma vision. Provides structured clinical interpretation.
--   **Diagnosis Agent**: Suggests differential diagnoses based on symptom analysis and trusted medical web crawling.
--   **Drug Agent**: Checks interactions, contraindications, dosage, and recommendations via trusted pharmacology web search.
+All agents adhere to the **A2A Protocol**, taking an `Envelope` input and returning an `AgentResponse`. Each agent publishes an `AgentCard` (name, input/output schema, capabilities, version).
+
+-   **Report Agent** (`v2.0.0`): Extracts text from PDF reports and analyzes medical images (X-ray, MRI, CT) via MedGemma vision. Uses 3 specialized tools: document extraction → image extraction → clinical analysis.
+-   **Diagnosis Agent**: Suggests differential diagnoses based on symptom analysis and trusted medical web crawling (UpToDate, Merck, etc.).
+-   **Drug Agent** (`v2.0.0`): Checks interactions, contraindications, dosage, and recommendations via trusted pharmacology web search. Uses 2 specialized tools: interaction checker + recommendation/dosage/alternatives.
 -   **PubMed Agent**: Searches NCBI PubMed for research papers and crawls trusted medical websites (Mayo Clinic, NIH, CDC, WHO, etc.) for clinical guidance.
--   **Patient Agent**: HIPAA-compliant patient record retrieval and clinical history analysis (MedGemma-powered).
+-   **Patient Agent** (`v3.0.0`): HIPAA-compliant patient record retrieval and clinical analysis (MedGemma-powered). Uses 4 specialized tools: secure record retrieval, diagnosis pattern analysis, vitals assessment, and medication safety review — all on de-identified data. PII is resolved only internally by the retriever tool and never exposed to external LLMs.
 
 ### 3. Tool Layer (`tools/`) & MCP Server
 The system exposes its capabilities via the **Model Context Protocol (MCP)**, allowing external clients (e.g., Claude Desktop) to use its tools directly.
--   **MCP Server**: `tools/mcp_server.py`
+-   **MCP Server**: `tools/mcp_server.py` — 13 tools + Agent Card Resources.
 -   **MCP Resources**: Agent cards exposed via `agents://medicortex/{name}/card` URI scheme (MCP §3.1).
--   **Tools**:
-    -   `pubmed_search_tools.py`: NCBI PubMed API keys.
-    -   `medical_webcrawler_tools.py`: General trusted medical site crawler.
-    -   `symptom_analysis_tools.py`: Structured symptom parsing & context integration.
-    -   `diagnosis_webcrawler_tools.py`: Specialized crawler for diagnostic criteria (UpToDate, Merck, etc.).
-    -   `patient_retriever_tools.py`: HIPAA-compliant patient record retriever with PII resolution.
-    -   `patient_history_analyzer_tools.py`: MedGemma-powered clinical history analyzer.
-    -   `drug_interaction_tools.py`: Drug-drug interaction checker (Drugs.com, RxList, etc.).
-    -   `drug_recommendation_tools.py`: Drug recommendation, dosage, and alternatives.
-    -   `document_extraction_tools.py`: PDF report → Markdown text extraction.
-    -   `image_extraction_tools.py`: Medical image analysis via MedGemma vision.
-    -   `report_analysis_tools.py`: Clinical interpretation of extracted content.
-    -   Other domain-specific tools.
+-   **Tools** (grouped by agent):
 
-### 4. Data Layer
--   **PostgreSQL**: Stores persistent chat history and session metadata (Schema managed via `database/schema.sql`).
--   **MinIO**: High-performance object storage for file uploads.
+    **PubMed & Web Research**
+    -   `pubmed_search_tools.py`: NCBI PubMed E-utilities API search.
+    -   `medical_webcrawler_tools.py`: General trusted medical site crawler.
+
+    **Diagnosis**
+    -   `symptom_analysis_tools.py`: Structured symptom parsing & knowledge core context integration.
+    -   `diagnosis_webcrawler_tools.py`: Specialized crawler for diagnostic criteria (UpToDate, Merck, etc.).
+
+    **Patient (HIPAA-compliant, de-identified)**
+    -   `patient_retriever_tools.py`: PII-resolving patient record retriever. Returns structured JSON + Markdown. Re-redacts before output.
+    -   `patient_history_analyzer_tools.py`: MedGemma diagnosis pattern analysis — comorbidities, risk factors, disease progression.
+    -   `patient_vitals_tools.py`: Vital sign analysis — critical value flagging, condition-specific targets (e.g., diabetic BP goals), multi-visit trend detection.
+    -   `patient_medication_review_tools.py`: Medication safety review — allergy cross-reference, polypharmacy detection (>5 meds), missing standard therapies, condition-contraindicated drugs.
+
+    **Drug (Pharmacology)**
+    -   `drug_interaction_tools.py`: Drug-drug interaction checker with severity grading (Major/Moderate/Minor).
+    -   `drug_recommendation_tools.py`: Evidence-based drug recommendations, dosage guidelines, and alternative medications.
+
+    **Report & Imaging**
+    -   `document_extraction_tools.py`: PDF report → Markdown text extraction via pymupdf4llm.
+    -   `image_extraction_tools.py`: Medical image analysis (X-ray, MRI, CT, pathology) via MedGemma vision (base64).
+    -   `report_analysis_tools.py`: MedGemma clinical interpretation of extracted content — lab values, abnormalities, significance.
+
+### 4. Frontend (`frontend/`)
+-   **Vite + React** SPA at `http://localhost:5173`.
+-   **Real-time streaming**: Consumes `/chat/stream` SSE endpoint for token-by-token response rendering.
+-   **Agent Thinking UI**: Live accordion showing each agent's reasoning steps as they stream in, with persistence to the database.
+
+### 5. Data Layer
+-   **PostgreSQL**: Stores persistent chat history, session metadata, and agent thinking steps (`thinking` JSONB column on `chat_messages`). Schema managed via `database/schema.sql`.
+-   **MinIO**: High-performance object storage for file uploads (PDFs, medical images).
+
+---
+
+## 🔐 PII / HIPAA Data Flow
+
+The privacy pipeline ensures patient identifiers **never reach external LLMs** (GPT):
+
+```
+User Input → Presidio redact_pii() → <PERSON_1> + mapping stored in AgentState
+    → GPT Router sees only <PERSON_1>
+    → Patient Agent: retrieve_patient_records resolves PII internally for DB lookup, re-redacts output
+    → All MedGemma analysis tools receive only de-identified data
+    → GPT Aggregator formats <PERSON_1> text
+    → node_restore_privacy() replaces <PERSON_1> → real name
+    → Final response shown to user
+```
 
 ---
 
@@ -90,7 +124,6 @@ python3 -m knowledge_core.build_fast_assets
 ## 🏃‍♂️ Running the Application
 
 ### 1. Start the Backend Orchestrator
-To start the FastAPI server:
 ```bash
 python orchestrator.py
 ```
@@ -98,14 +131,12 @@ python orchestrator.py
 -   **Docs**: `http://0.0.0.0:8001/docs`
 
 ### 2. Start the MCP Server (Optional)
-To run the MCP server for external tool access:
 ```bash
 python tools/mcp_server.py
 ```
 (Configured via `stdin/stdout` for MCP clients)
 
 ### 3. Start the Frontend
-In a separate terminal:
 ```bash
 cd frontend
 npm install
@@ -116,8 +147,6 @@ npm run dev
 ---
 
 ## 🏥 Verification & Health Check
-
-We provide a unified health check script to verify all dependent services.
 
 **Run Health Check:**
 ```bash
@@ -139,23 +168,26 @@ python tests/health_check.py
 
 ## 📂 Project Structure
 
--   `orchestrator.py`: Main API server and agent coordinator.
+-   `orchestrator.py`: Main API server, LangGraph workflow, privacy manager, SSE streaming.
 -   `config.py`: Centralized configuration management (Pydantic).
 -   `specialized_agents/`:
-    -   `base.py`: Base agent class enforcing A2A.
-    -   `protocols.py`: Pydantic models for Agent Cards and Envelopes.
-    -   `*_agent.py`: Individual agent logic.
+    -   `base.py`: `A2ABaseAgent` — ReAct loop, tool dispatch, thinking step capture.
+    -   `protocols.py`: Pydantic models — `AgentCard`, `Envelope`, `AgentResponse`.
+    -   `report_agent.py`, `diagnosis_agent.py`, `drug_agent.py`, `pubmed_agent.py`, `patient_agent.py`
+    -   `medgemma_llm.py`: MedGemma LLM wrapper.
 -   `tools/`:
-    -   `pubmed_search_tools.py`: NCBI PubMed E-utilities API search.
-    -   `medical_webcrawler_tools.py`: Trusted medical website crawler.
-    -   `diagnosis_tools.py`, `patient_retriever_tools.py`, `patient_history_analyzer_tools.py`
+    -   `pubmed_search_tools.py`, `medical_webcrawler_tools.py`
+    -   `symptom_analysis_tools.py`, `diagnosis_webcrawler_tools.py`
+    -   `patient_retriever_tools.py`, `patient_history_analyzer_tools.py`, `patient_vitals_tools.py`, `patient_medication_review_tools.py`
     -   `drug_interaction_tools.py`, `drug_recommendation_tools.py`
     -   `document_extraction_tools.py`, `image_extraction_tools.py`, `report_analysis_tools.py`
-    -   `mcp_server.py`: Model Context Protocol server with Resources.
+    -   `mcp_server.py`: Model Context Protocol server with Resources, Tools, and STDIO transport.
 -   `database/`:
-    -   `models.py`: SQLAlchemy models.
+    -   `models.py`: SQLAlchemy models (`ChatSession`, `ChatMessage` with `thinking` JSONB).
     -   `schema.sql`: Source of truth for database schema.
     -   `init_db.py`: Schema migration script.
 -   `schemas/`: Pydantic models for API requests/responses.
--   `services/`: Business logic for Chat and Storage.
--   `knowledge_core/`: Medical knowledge graph logic.
+-   `services/`: Business logic for Chat and Storage (MinIO).
+-   `knowledge_core/`: Medical knowledge graph logic and fast asset builder.
+-   `tests/`: `health_check.py` for service verification.
+-   `skills/`: Internal development standards — `A2A.md`, `MCP.md`.

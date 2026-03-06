@@ -21,6 +21,8 @@ from tools.image_extraction_tools import extract_image_findings
 from tools.report_analysis_tools import analyze_report
 from tools.patient_retriever_tools import retrieve_patient_records
 from tools.patient_history_analyzer_tools import analyze_patient_history
+from tools.patient_vitals_tools import analyze_patient_vitals
+from tools.patient_medication_review_tools import review_patient_medications
 from tools.drug_interaction_tools import check_drug_interactions
 from tools.drug_recommendation_tools import recommend_drugs
 
@@ -166,11 +168,33 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="analyze_patient_history",
-            description="Analyze a de-identified patient record to identify clinical patterns, risk factors, drug interactions, and care recommendations using MedGemma.",
+            description="Analyze a de-identified patient record to identify diagnosis patterns, comorbidity relationships, disease progression risks, and recommended screenings using MedGemma.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "patient_record": {"type": "string", "description": "De-identified patient record text"}
+                },
+                "required": ["patient_record"]
+            },
+        ),
+        types.Tool(
+            name="analyze_patient_vitals",
+            description="Analyze vital signs from a de-identified patient record. Flags critical values, compares against condition-specific targets (e.g., diabetic BP goals), and detects trends across visits.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "patient_record": {"type": "string", "description": "De-identified patient record text with vitals data"}
+                },
+                "required": ["patient_record"]
+            },
+        ),
+        types.Tool(
+            name="review_patient_medications",
+            description="Review a de-identified patient's medications against their diagnoses and allergies. Detects allergy conflicts, polypharmacy, missing standard therapies, and condition-contraindicated drugs.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "patient_record": {"type": "string", "description": "De-identified patient record text with medications, diagnoses, and allergies"}
                 },
                 "required": ["patient_record"]
             },
@@ -263,6 +287,16 @@ async def handle_call_tool(
         elif name == "analyze_patient_history":
             patient_record = arguments.get("patient_record")
             result = analyze_patient_history.invoke({"patient_record": patient_record})
+            return [types.TextContent(type="text", text=str(result))]
+
+        elif name == "analyze_patient_vitals":
+            patient_record = arguments.get("patient_record")
+            result = analyze_patient_vitals.invoke({"patient_record": patient_record})
+            return [types.TextContent(type="text", text=str(result))]
+
+        elif name == "review_patient_medications":
+            patient_record = arguments.get("patient_record")
+            result = review_patient_medications.invoke({"patient_record": patient_record})
             return [types.TextContent(type="text", text=str(result))]
 
         elif name == "check_drug_interactions":
