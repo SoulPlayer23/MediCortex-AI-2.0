@@ -15,10 +15,13 @@ The system is built on a **Centralized Orchestration Architecture** with strict 
 -   **Agent Card Discovery**: `GET /.well-known/agent-cards` exposes all registered agent cards for A2A discovery.
 -   **Privacy Manager**: Uses Microsoft Presidio to redact PII (PHI) before routing to agents. Real identifiers are restored only at the final `node_restore_privacy` step — never exposed to external LLMs (GPT).
 -   **Router**: Intelligently routes user queries to specialized agents (capped at 3 concurrent agents per request via A2A §4.1 circuit breaker).
+-   **Model-as-Judge Evaluator**: A `node_reviewer` (A2A §5.2) powered by Groq (`llama-3.3-70b-versatile`) that scores responses 1-5 to prevent hallucinations/danger. Appends clinical disclaimers for low-quality responses.
 -   **SSE Streaming**: `/chat/stream` endpoint streams agent thoughts and response tokens to the frontend in real-time via Server-Sent Events.
 
 ### 2. Specialized Agents (`specialized_agents/`)
-All agents adhere to the **A2A Protocol**, taking an `Envelope` input and returning an `AgentResponse`. Each agent publishes an `AgentCard` (name, input/output schema, capabilities, version).
+All agents adhere to the **A2A Protocol**, taking an `Envelope` input and returning an `AgentResponse`. 
+-   **Idempotency Cache**: Built-in 24-hour response caching (Redis-backed, memory fallback) using the Envelope's `idempotency_key` (A2A §4.2).
+-   Each agent publishes an `AgentCard` (name, input/output schema, capabilities, version).
 
 -   **Report Agent** (`v2.0.0`): Extracts text from PDF reports and analyzes medical images (X-ray, MRI, CT) via MedGemma vision. Uses 3 specialized tools: document extraction → image extraction → clinical analysis.
 -   **Diagnosis Agent**: Suggests differential diagnoses based on symptom analysis and trusted medical web crawling (UpToDate, Merck, etc.).
@@ -28,8 +31,9 @@ All agents adhere to the **A2A Protocol**, taking an `Envelope` input and return
 
 ### 3. Tool Layer (`tools/`) & MCP Server
 The system exposes its capabilities via the **Model Context Protocol (MCP)**, allowing external clients (e.g., Claude Desktop) to use its tools directly.
--   **MCP Server**: `tools/mcp_server.py` — 13 tools + Agent Card Resources.
+-   **MCP Server**: `tools/mcp_server.py` — 13 tools + Agent Card Resources + 3 Standardized Prompts.
 -   **MCP Resources**: Agent cards exposed via `agents://medicortex/{name}/card` URI scheme (MCP §3.1).
+-   **MCP Prompts**: Exposes Agentic RAG workflows (`patient-full-review`, `drug-safety-check`, `medical-report-analysis`) directing external models to use tools correctly without hallucinating (MCP §3.2).
 -   **Tools** (grouped by agent):
 
     **PubMed & Web Research**
@@ -89,16 +93,20 @@ User Input → Presidio redact_pii() → <PERSON_1> + mapping stored in AgentSta
 -   Node.js & npm
 -   PostgreSQL (Local or Docker)
 -   MinIO Server (Local or Docker)
--   OpenAI API Key
+-   Redis (Local or Docker — Optional for Idempotency Cache, defaults to memory)
+-   OpenAI API Key (GPT models)
+-   Groq API Key (Model-as-Judge)
 
 ### 1. Environment Setup
 Create a `.env` file in the root directory (validated by `config.py`):
 ```bash
 OPENAI_API_KEY=your_key_here
+GROQ_API_KEY=your_groq_key_here
 DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/medicortex
 MINIO_URL=localhost:9000
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin
+REDIS_URL=redis://localhost:6379/0
 ```
 
 ### 2. Backend Dependencies

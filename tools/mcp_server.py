@@ -67,6 +67,94 @@ async def handle_read_resource(uri: str) -> str:
         raise ValueError(f"Agent '{agent_name}' not found")
     return _json.dumps(agent.get_card().model_dump(), indent=2)
 
+# ── MCP Prompts: Standardized Workflows (MCP §3.2) ────────────────────────
+@server.list_prompts()
+async def handle_list_prompts() -> list[types.Prompt]:
+    """Expose standardized, Agentic RAG-optimized workflows."""
+    return [
+        types.Prompt(
+            name="patient-full-review",
+            description="Complete clinical review of a patient including history, vitals, and medications.",
+            arguments=[
+                types.PromptArgument(name="patient_id", description="Patient name or ID", required=True)
+            ]
+        ),
+        types.Prompt(
+            name="drug-safety-check",
+            description="Check a medication list against a patient's condition for interactions and safe alternatives.",
+            arguments=[
+                types.PromptArgument(name="medications", description="Comma-separated list of drugs", required=True),
+                # Made optional so the prompt doesn't strictly fail if absent
+                types.PromptArgument(name="conditions", description="Patient's known conditions", required=False)
+            ]
+        ),
+        types.Prompt(
+            name="medical-report-analysis",
+            description="Analyze a medical report (PDF or Image URL) for clinical findings.",
+            arguments=[
+                types.PromptArgument(name="file_url", description="URL to PDF or Image", required=True),
+                types.PromptArgument(name="report_type", description="'lab_report', 'imaging_report', or 'clinical_note'", required=True)
+            ]
+        )
+    ]
+
+@server.get_prompt()
+async def handle_get_prompt(name: str, arguments: dict[str, str] | None) -> types.GetPromptResult:
+    """Return the step-by-step workflow instructions for the prompt."""
+    if not arguments:
+        arguments = {}
+
+    if name == "patient-full-review":
+        patient_id = arguments.get("patient_id", "[Patient ID Missing]")
+        instructions = f"""You are a specialized medical reviewer executing a Patient Full Review.
+We are using an Agentic RAG process. Proceed strictly through these steps:
+
+1. Use the `retrieve_patient_records` tool for patient [{patient_id}].
+   Wait for the output. If no record is found, state that clearly and stop. DO NOT hallucinate patient data.
+2. Use the `analyze_patient_history` tool on the record to uncover comorbidities and past procedural history.
+3. Use the `analyze_patient_vitals` tool to review the patient's vitals for any abnormal trends or critical values.
+4. Use the `review_patient_medications` tool to check for polypharmacy, adverse interactions, or contraindications.
+
+Once you have gathered all evidence, write a final comprehensive evaluation report, citing the specific tools that provided the data."""
+        return types.GetPromptResult(
+            messages=[types.PromptMessage(role="user", content=types.TextContent(type="text", text=instructions))]
+        )
+
+    elif name == "drug-safety-check":
+        medications = arguments.get("medications", "")
+        conditions = arguments.get("conditions", "None specified")
+        instructions = f"""You are a pharmacological safety reviewer.
+Your objective is to review the following medications: [{medications}] for a patient with conditions: [{conditions}].
+
+Please follow this specific Agentic RAG workflow:
+1. First, call `check_drug_interactions` using the medication list and conditions provided. Analyze the severity of any flagged interactions.
+2. Next, call `recommend_drugs` setting `query_type` to "alternatives" combined with the condition, to find safer options if major interactions exist.
+3. Evaluate the output carefully. If you lack sufficient information, state that explicitly. Do NOT hallucinate interactions or drugs that are not backed by the tool outputs.
+
+Synthesize your findings into a final safety report."""
+        return types.GetPromptResult(
+            messages=[types.PromptMessage(role="user", content=types.TextContent(type="text", text=instructions))]
+        )
+
+    elif name == "medical-report-analysis":
+        file_url = arguments.get("file_url", "")
+        report_type = arguments.get("report_type", "clinical_note")
+        instructions = f"""You are a clinical report analyst.
+Follow this workflow to process the medical file at: [{file_url}] of type [{report_type}].
+
+1. Determine if the file is a PDF document or a Medical Image.
+   - If PDF, use the `extract_document_text` tool.
+   - If Medical Image (e.g., X-ray, MRI, CT), use the `extract_image_findings` tool.
+2. Once you have the extracted content, pass it into the `analyze_report` tool with the report_type: {report_type}.
+3. Summarize the clinical interpretation exactly as returned by the analysis tool.
+WARNING: Do not diagnose the patient yourself; rely exclusively on the `analyze_report` output."""
+        return types.GetPromptResult(
+            messages=[types.PromptMessage(role="user", content=types.TextContent(type="text", text=instructions))]
+        )
+
+    raise ValueError(f"Prompt not found: {name}")
+
+
 @server.list_tools()
 async def handle_list_tools() -> list[types.Tool]:
     """List available tools."""

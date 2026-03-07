@@ -17,7 +17,18 @@ class Settings(BaseSettings):
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET_NAME: str = "medicortex-uploads"
-    
+
+    # Redis Cache Backend
+    REDIS_URL: str = "redis://localhost:6379/0"
+
+    # ── Model-as-Judge (A2A §5.2) ─────────────────────────────────────
+    GROQ_API_KEY: str = ""
+    JUDGE_ENABLED: bool = True
+    JUDGE_SAMPLE_RATE: float = 1.0        # 0.0–1.0; 1.0 = judge every request
+    JUDGE_MODEL: str = "llama-3.3-70b-versatile"
+    JUDGE_FALLBACK_MODEL: str = "llama-3.1-8b-instant"
+    JUDGE_MAX_INPUT_TOKENS: int = 500     # truncate aggregated response before sending
+
     # Model Configuration
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", case_sensitive=True, extra="ignore")
 

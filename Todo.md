@@ -7,7 +7,7 @@ These apply **system-wide** across all 5 agents.
 
 ## 🔴 High Priority
 
-### §5.2 (A2A) — Model-as-Judge Evaluation
+### ~~§5.2 (A2A) — Model-as-Judge Evaluation~~ ✅ (Done)
 **Impact**: Catches hallucinated drug interactions, fabricated diagnoses, or off-topic responses before they reach the user — critical for a medical system.
 
 **What to build**: A `node_reviewer` step in the LangGraph workflow inserted between `node_aggregator` and `node_restore_privacy`.
@@ -48,7 +48,7 @@ JUDGE_MAX_INPUT_TOKENS: int = 500    # truncate before sending to judge
 
 ## 🟡 Medium Priority
 
-### §4.2 (A2A) — Idempotency Cache
+### ~~§4.2 (A2A) — Idempotency Cache~~ ✅ (Done)
 **Impact**: Prevents duplicate execution if a request is retried (e.g., on network failure). Becomes critical if agents ever gain write capabilities (DB writes, notifications, external APIs).
 
 **What to build**: An idempotency cache in `A2ABaseAgent.process()` in `base.py`.
@@ -59,20 +59,18 @@ JUDGE_MAX_INPUT_TOKENS: int = 500    # truncate before sending to judge
 
 ---
 
-### §5.1 (MCP) — MCP Inspector Testing
+### ~~§5.1 (MCP) — MCP Inspector Testing~~ ✅ (Resolved by Unit Tests)
 **Impact**: Validates that all 13 MCP tools are correctly structured for any MCP-compliant external client (Claude Desktop, Cursor, etc.).
 
-**What to build**: A test script that exercises the MCP server programmatically.
-
-**Files to change/create**:
-- `tests/test_mcp_server.py` — Python MCP client that connects to `mcp_server.py` via STDIO, calls `tools/list`, and invokes each tool with sample inputs to assert `TextContent` responses.
-- Alternatively: document MCP Inspector CLI usage: `npx @modelcontextprotocol/inspector python tools/mcp_server.py`
+**Resolution**: A programmatic STDIO test script is redundant because `tests/mcp/test_mcp_server.py` already directly validates tool listing, schema conformance, and handler invocation natively. The core MCP protocol serialization is maintained by Anthropic's SDK.
+Developers can manually test the Server's STDIO transport via Inspector:
+`npx @modelcontextprotocol/inspector python tools/mcp_server.py`
 
 ---
 
 ## 🟢 Low Priority
 
-### §3.2 (MCP) — Prompts Primitive
+### ~~§3.2 (MCP) — Prompts Primitive~~ ✅ (Done)
 **Impact**: Standardizes how external MCP clients use our tools — useful for Claude Desktop or Cursor integrations.
 
 **What to build**: Expose `prompts/list` and `prompts/get` in `mcp_server.py` with reusable workflow templates.
@@ -88,7 +86,7 @@ JUDGE_MAX_INPUT_TOKENS: int = 500    # truncate before sending to judge
 
 ---
 
-### Dependency Upgrade — spaCy 3.7.4 → 3.8.11 (Deprecation Warnings)
+### ~~Dependency Upgrade — spaCy 3.7.4 → 3.8.11 (Deprecation Warnings)~~ ✅ (Done)
 **Impact**: Clears 2 third-party deprecation warnings that currently appear in test output (cosmetic only, no functional breakage).
 
 **Background**: Upgrading spaCy from `3.7.4` to `3.8.11` resolves:

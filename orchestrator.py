@@ -1,6 +1,7 @@
 
 import os
 import sys
+import random
 import structlog
 from typing import Dict, TypedDict, List, Optional, Tuple, Annotated
 import operator
@@ -25,6 +26,7 @@ from services.minio_service import minio_service
 
 # --- Third Party Imports ---
 from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, BaseMessage
 from langchain_core.tools import tool
 from langgraph.graph import StateGraph, END
@@ -122,6 +124,7 @@ class AgentState(TypedDict):
     agent_outputs: Annotated[List[str], operator.add]
     agent_thoughts: Annotated[List[str], operator.add] # New: Capture thinking steps
     final_output: str
+    judge_score: Optional[int]            # A2A §5.2 — set by node_reviewer
     error: Optional[str]
     trace_id: Optional[str]
 
@@ -217,27 +220,36 @@ def node_retrieve_knowledge(state: AgentState):
 def node_router(state: AgentState):
     logger.info("NODE: ROUTER")
     input_text = state['redacted_input']
+    context_str = "\n".join(state.get("context", []))
     
     system_prompt = (
-        "You are the MediCortex Orchestrator. Analyze the user request and select the BEST specialized agents "
-        "to handle it. \n"
-        "Available Agents:\n"
-        "- 'pubmed': For medical research papers (PubMed database) AND medical articles from trusted websites "
-        "(Mayo Clinic, NIH, CDC, WHO, WebMD, Medscape, etc.). Use for any research, literature, or clinical guidance queries.\n"
-        "- 'diagnosis': For symptoms, possibilities, differential diagnosis. Uses symptom analysis AND web crawling "
-        "of trusted medical sites to suggest conditions and provide evidence-based reasoning.\n"
-        "- 'report': For lab results, medical reports (PDF extraction), and medical image analysis "
-        "(X-Rays, MRIs, CT scans via MedGemma vision). Handles both document and image-based reports.\n"
-        "- 'patient': For retrieving patient records, demographics, diagnoses, medications, vitals, and clinical analysis. "
-        "Includes vitals assessment (trend detection, critical value flagging), medication safety review "
-        "(allergy cross-reference, polypharmacy detection, missing therapies), and diagnosis pattern analysis. "
-        "HIPAA-compliant with PII de-identification.\n"
-        "- 'drug': For medication interactions, contraindications, dosage guidelines, and drug recommendations. "
-        "Can also suggest alternative medications and check safety against patient conditions.\n\n"
-        "Return ONLY a JSON list of keys, e.g. ['pubmed', 'diagnosis']. If unsure, default to ['pubmed']."
+        "You are the MediCortex Orchestrator. Your ONLY job is to select the best agent(s) to handle the user's query.\n\n"
+        "═══ AGENT DECISION RULES ═══\n\n"
+        "'diagnosis' — Use when the user describes symptoms, asks about a disease's symptoms, asks what disease they might have, "
+        "asks for treatment options for a specific disease/condition, or asks for a differential diagnosis. "
+        "EXAMPLES: 'symptoms of diabetes', 'what causes chest pain', 'treatment for hypertension', 'I have a headache and fever'.\n\n"
+        "'drug' — Use ONLY when the user explicitly asks about a specific medication by name, asks about drug interactions, "
+        "dosage, contraindications, or alternatives for a drug. "
+        "EXAMPLES: 'interactions of Metformin and Lisinopril', 'dosage for Ibuprofen', 'alternatives to Atorvastatin'.\n\n"
+        "'pubmed' — Use when the user asks for research papers, clinical studies, literature reviews, or recent evidence on a topic. "
+        "EXAMPLES: 'latest research on Alzheimer's', 'clinical trials for immunotherapy', 'evidence for statins'.\n\n"
+        "'report' — Use ONLY when the user provides or references a document, lab result, PDF, image, X-ray, MRI, or CT scan. "
+        "EXAMPLES: 'analyze my lab report', 'what does this X-ray show', 'interpret my HbA1c result'.\n\n"
+        "'patient' — Use ONLY when the user asks about a specific named or identified patient's records, history, medications, or vitals. "
+        "EXAMPLES: 'show me John's records', 'what medications is patient PT-10042 on'.\n\n"
+        "═══ CRITICAL RULES ═══\n"
+        "- A query about symptoms OR treatment of a disease → ['diagnosis'] only\n"
+        "- A query about a named drug → ['drug'] only\n"
+        "- A query about research/literature → ['pubmed'] only\n"
+        "- Only combine agents when the query EXPLICITLY spans two domains (e.g., 'symptoms AND drug interactions for diabetes').\n"
+        "- NEVER route to 'drug' for a pure symptoms/treatment query.\n"
+        "- NEVER route to 'pubmed' unless research papers are explicitly requested.\n\n"
+        "Return ONLY a JSON array of agent keys. Examples: ['diagnosis'] or ['drug'] or ['diagnosis', 'drug'].\n"
+        "Do NOT add any explanation. Only output the JSON array."
     )
     
-    messages = [SystemMessage(content=system_prompt), HumanMessage(content=input_text)]
+    user_message = f"User Query: {input_text}\n\nKnowledge Core Context (for your awareness): {context_str[:300]}"
+    messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
     
     try:
         response = llm.invoke(messages).content
@@ -245,7 +257,7 @@ def node_router(state: AgentState):
         clean_response = clean_response.replace("'", '"')
         routes = json.loads(clean_response)
         if not isinstance(routes, list):
-            routes = ["pubmed"]
+            routes = ["diagnosis"]
     except Exception as e:
         logger.error("Routing failed, defaulting to 'diagnosis'", error=str(e))
         routes = ["diagnosis"]
@@ -340,6 +352,103 @@ def node_aggregator(state: AgentState):
         
     return {"final_output": formatted}
 
+def node_reviewer(state: AgentState):
+    """
+    A2A §5.2 — Model-as-Judge evaluation node.
+
+    Scores the aggregated response 1–5 using Groq (llama-3.3-70b-versatile).
+    If score < 3, appends a clinical disclaimer to protect the user.
+    Respects JUDGE_SAMPLE_RATE, JUDGE_MAX_INPUT_TOKENS, and falls back to
+    llama-3.1-8b-instant if the primary model hits rate limits.
+    """
+    logger.info("NODE: REVIEWER")
+
+    # ── Sampling gate ─────────────────────────────────────────────────
+    if not settings.JUDGE_ENABLED or random.random() > settings.JUDGE_SAMPLE_RATE:
+        logger.info("reviewer_skipped", reason="disabled or sampled out")
+        return {"judge_score": None}
+
+    if not settings.GROQ_API_KEY:
+        logger.warning("reviewer_skipped", reason="GROQ_API_KEY not set")
+        return {"judge_score": None}
+
+    # ── Truncate input to stay within TPD budget ──────────────────────
+    response_text = state.get("final_output", "")
+    # Rough token estimate: 1 token ≈ 4 chars
+    max_chars = settings.JUDGE_MAX_INPUT_TOKENS * 4
+    truncated = response_text[:max_chars]
+    if len(response_text) > max_chars:
+        truncated += "\n...[truncated for evaluation]"
+
+    original_query = state.get("redacted_input", "")
+
+    judge_prompt = f"""You are a clinical quality reviewer for a medical AI assistant.
+
+Evaluate the following response on a scale of 1–5:
+1 = Completely off-topic, dangerous, or hallucinates facts
+2 = Partially relevant but contains significant errors or unsupported claims
+3 = Relevant and mostly accurate, minor gaps acceptable
+4 = Accurate, grounded in evidence, clearly addresses the query
+5 = Excellent — accurate, complete, evidence-based, safe for clinical context
+
+Criteria to check:
+- Does the response address the user's query?
+- Are all clinical claims grounded in tool outputs (no fabricated facts)?
+- Does the response contain leaked PII placeholders (e.g. <PERSON_1>)?
+- Is the response safe for a medical assistant context?
+
+User Query: {original_query}
+
+Response to evaluate:
+{truncated}
+
+Reply with ONLY a JSON object in this exact format, no other text:
+{{"score": <1-5>, "reason": "<one sentence>"}}"""
+
+    def _call_groq(model_name: str) -> dict:
+        judge_llm = ChatGroq(
+            model=model_name,
+            api_key=settings.GROQ_API_KEY,
+            temperature=0,
+            max_tokens=100,
+        )
+        result = judge_llm.invoke([HumanMessage(content=judge_prompt)]).content
+        return json.loads(result.strip())
+
+    # ── Call judge with fallback ──────────────────────────────────────
+    judge_result = None
+    for model in [settings.JUDGE_MODEL, settings.JUDGE_FALLBACK_MODEL]:
+        try:
+            judge_result = _call_groq(model)
+            logger.info("reviewer_complete", model=model, score=judge_result.get("score"),
+                        reason=judge_result.get("reason"))
+            break
+        except Exception as e:
+            logger.warning("reviewer_model_failed", model=model, error=str(e))
+
+    if judge_result is None:
+        logger.error("reviewer_all_models_failed")
+        return {"judge_score": None}
+
+    score = int(judge_result.get("score", 3))
+    reason = judge_result.get("reason", "")
+
+    # ── Append clinical disclaimer if quality is low ──────────────────
+    current_output = state.get("final_output", "")
+    if score < 3:
+        disclaimer = (
+            "\n\n---\n"
+            "> ⚠️ **Clinical Disclaimer**: This response has been flagged by our quality "
+            "reviewer for potential inaccuracies or incomplete information. "
+            "Please consult a qualified healthcare professional before acting on this information. "
+            f"*(Quality Score: {score}/5 — {reason})*"
+        )
+        logger.warning("reviewer_low_score_disclaimer_appended", score=score, reason=reason)
+        return {"final_output": current_output + disclaimer, "judge_score": score}
+
+    return {"judge_score": score}
+
+
 def node_restore_privacy(state: AgentState):
     logger.info("NODE: RESTORE PRIVACY")
     raw_output = state.get("final_output", "")
@@ -374,6 +483,7 @@ workflow.add_node("report", node_report)
 workflow.add_node("patient", node_patient)
 workflow.add_node("drug", node_drug)
 workflow.add_node("aggregator", node_aggregator)
+workflow.add_node("reviewer", node_reviewer)       # A2A §5.2 — Model-as-Judge
 workflow.add_node("restore_privacy", node_restore_privacy)
 
 workflow.set_entry_point("analyze_privacy")
@@ -385,7 +495,9 @@ workflow.add_conditional_edges("router", route_decision, {k:k for k in AGENT_REG
 for agent_key in AGENT_REGISTRY.keys():
     workflow.add_edge(agent_key, "aggregator")
 
-workflow.add_edge("aggregator", "restore_privacy")
+# A2A §5.2: aggregator → reviewer → restore_privacy
+workflow.add_edge("aggregator", "reviewer")
+workflow.add_edge("reviewer", "restore_privacy")
 workflow.add_edge("restore_privacy", END)
 
 orchestrator_graph = workflow.compile()

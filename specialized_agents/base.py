@@ -14,10 +14,13 @@ import logging
 import re
 import uuid
 import datetime
+import json
+import redis
 from typing import List, Dict, Any, Optional
 from langchain_core.tools import BaseTool
 from .medgemma_llm import MedGemmaLLM
 from .protocols import AgentCard, Envelope, AgentResponse
+from config import settings
 
 # Setup Logger
 logger = logging.getLogger("SpecializedAgents")
@@ -37,6 +40,19 @@ class A2ABaseAgent:
         self.card = card
         self.max_iterations = max_iterations
         
+        # Idempotency Cache: In-memory fallback
+        self._response_cache: Dict[str, AgentResponse] = {}
+        # Optional Redis Backing
+        self._redis_cache = None
+        try:
+            if getattr(settings, "REDIS_URL", None):
+                self._redis_cache = redis.from_url(settings.REDIS_URL, decode_responses=True)
+                self._redis_cache.ping() # test connection
+                logger.info(f"[{self.name}] Connected to Redis Cache.")
+        except Exception as e:
+            logger.warning(f"[{self.name}] Redis connection failed, falling back to in-memory cache: {e}")
+            self._redis_cache = None
+
         # Build prompt template
         tool_desc = "\n".join([f"{t.name}: {t.description}" for t in tools])
         tool_names = ", ".join([f"[{t.name}]" for t in tools])
@@ -100,13 +116,55 @@ New input: {{input}}
                 error="Validation Error: 'input' field missing in payload."
             )
 
+        # ── Idempotency Cache Check ──
+        cache_key = f"medicortex:idempotency:{envelope.idempotency_key}"
+        
+        # 1. Check Redis
+        if self._redis_cache:
+            try:
+                cached_json = self._redis_cache.get(cache_key)
+                if cached_json:
+                    logger.info(f"[{self.name}] Cache HIT (Redis) for {envelope.idempotency_key}")
+                    import pydantic
+                    try: # Support pydantic v1 parse_raw and v2 model_validate_json
+                        return AgentResponse.model_validate_json(cached_json)
+                    except AttributeError:
+                        return AgentResponse.parse_raw(cached_json)
+            except Exception as e:
+                logger.warning(f"[{self.name}] Failed to retrieve from Redis: {e}")
+        
+        # 2. Check In-Memory (Fallback)
+        if envelope.idempotency_key in self._response_cache:
+            logger.info(f"[{self.name}] Cache HIT (In-Memory) for {envelope.idempotency_key}")
+            return self._response_cache[envelope.idempotency_key]
+        
+        logger.info(f"[{self.name}] Cache MISS for {envelope.idempotency_key}. Executing logic...")
+        
+        # ── Execution ──
         try:
             output, thinking_steps = self._execute_rect_loop(user_input)
-            return AgentResponse(
+            response = AgentResponse(
                 envelope_id=envelope.idempotency_key,
                 output=output,
                 thinking=thinking_steps
             )
+            
+            # ── Cache Write ──
+            if self._redis_cache:
+                try:
+                    try:
+                        resp_json = response.model_dump_json()
+                    except AttributeError:
+                        resp_json = response.json()
+                    # Cache for 24 hours
+                    self._redis_cache.setex(cache_key, 86400, resp_json)
+                except Exception as e:
+                    logger.warning(f"[{self.name}] Failed to save to Redis: {e}")
+            else:
+                self._response_cache[envelope.idempotency_key] = response
+                
+            return response
+            
         except Exception as e:
             logger.error(f"[{self.name}] Error processing request: {e}")
             return AgentResponse(

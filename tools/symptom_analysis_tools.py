@@ -15,7 +15,7 @@ from specialized_agents.medgemma_llm import MedGemmaLLM
 
 logger = structlog.get_logger("SymptomAnalysisTool")
 
-# Initialize LLM for tool use
+# Use MedGemma to ensure full clinical correctness per architecture
 llm = MedGemmaLLM()
 
 @tool
