@@ -13,6 +13,7 @@ import xml.etree.ElementTree as ET
 import httpx
 import structlog
 from langchain_core.tools import tool
+from utils.cache_utils import redis_cache
 
 logger = structlog.get_logger("PubMedSearchTool")
 
@@ -120,6 +121,7 @@ def _format_results(articles: list[dict], query: str) -> str:
 
 
 @tool
+@redis_cache(ttl=86400, prefix="medicortex:pubmed")
 def search_pubmed(query: str, max_results: int = 5) -> str:
     """Search the NCBI PubMed database for medical research papers matching the
     query. Returns structured results including paper title, authors, journal,

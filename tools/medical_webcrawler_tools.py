@@ -15,6 +15,7 @@ import httpx
 import structlog
 from bs4 import BeautifulSoup
 from langchain_core.tools import tool
+from utils.cache_utils import redis_cache
 
 logger = structlog.get_logger("MedicalWebCrawlerTool")
 
@@ -148,6 +149,7 @@ def _format_results(results: list[dict], query: str) -> str:
 
 
 @tool
+@redis_cache(ttl=86400, prefix="medicortex:med_crawler")
 def crawl_medical_articles(query: str, max_results: int = 5) -> str:
     """Search the web for medical articles from reputed healthcare websites,
     blogs, discussions, and forums. Retrieves results exclusively from trusted

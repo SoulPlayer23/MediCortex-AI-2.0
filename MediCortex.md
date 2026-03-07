@@ -15,12 +15,16 @@ The system is built on a **Centralized Orchestration Architecture** with strict 
 -   **Agent Card Discovery**: `GET /.well-known/agent-cards` exposes all registered agent cards for A2A discovery.
 -   **Privacy Manager**: Uses Microsoft Presidio to redact PII (PHI) before routing to agents. Real identifiers are restored only at the final `node_restore_privacy` step — never exposed to external LLMs (GPT).
 -   **Router**: Intelligently routes user queries to specialized agents (capped at 3 concurrent agents per request via A2A §4.1 circuit breaker).
--   **Model-as-Judge Evaluator**: A `node_reviewer` (A2A §5.2) powered by Groq (`llama-3.3-70b-versatile`) that scores responses 1-5 to prevent hallucinations/danger. Appends clinical disclaimers for low-quality responses.
+- **Model-as-Judge Evaluator**: A `node_reviewer` (A2A §5.2) powered by Groq (`llama-3.3-70b-versatile`) that scores responses 1-5 to prevent hallucinations/danger.
+-   **Fail-Open Logic**: If evaluation fails (e.g., rate limits), the node fails open to ensure system availability.
+-   **Cost Optimization**: Truncates response to 500 tokens before evaluation to respect Groq free tier TPD (Tokens Per Day) limits.
+-   **Disclaimers**: Appends clinical disclaimers for low-quality responses (< 3/5), including the judge's score and specific rationale.
 -   **SSE Streaming**: `/chat/stream` endpoint streams agent thoughts and response tokens to the frontend in real-time via Server-Sent Events.
 
 ### 2. Specialized Agents (`specialized_agents/`)
 All agents adhere to the **A2A Protocol**, taking an `Envelope` input and returning an `AgentResponse`. 
 -   **Idempotency Cache**: Built-in 24-hour response caching (Redis-backed, memory fallback) using the Envelope's `idempotency_key` (A2A §4.2).
+-   **LLM Fallback**: MedGemma-powered agents automatically fall back to OpenAI **GPT-4o-mini** if the local inference server is unreachable (currently silent/transparent to the user).
 -   Each agent publishes an `AgentCard` (name, input/output schema, capabilities, version).
 
 -   **Report Agent** (`v2.0.0`): Extracts text from PDF reports and analyzes medical images (X-ray, MRI, CT) via MedGemma vision. Uses 3 specialized tools: document extraction → image extraction → clinical analysis.
@@ -102,6 +106,7 @@ Create a `.env` file in the root directory (validated by `config.py`):
 ```bash
 OPENAI_API_KEY=your_key_here
 GROQ_API_KEY=your_groq_key_here
+JUDGE_SAMPLE_RATE=1.0  # Optional: 0.0-1.0 to sample evaluation frequency
 DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/medicortex
 MINIO_URL=localhost:9000
 MINIO_ACCESS_KEY=minioadmin
@@ -197,5 +202,7 @@ python tests/health_check.py
 -   `schemas/`: Pydantic models for API requests/responses.
 -   `services/`: Business logic for Chat and Storage (MinIO).
 -   `knowledge_core/`: Medical knowledge graph logic and fast asset builder.
--   `tests/`: `health_check.py` for service verification.
+-   `tests/`:
+    -   `health_check.py`: Service health verification.
+    -   `integration/test_reviewer_node.py`: Model-as-Judge logic and fallback verification.
 -   `skills/`: Internal development standards — `A2A.md`, `MCP.md`.

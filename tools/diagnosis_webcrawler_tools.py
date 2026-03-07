@@ -16,6 +16,7 @@ import httpx
 import structlog
 from bs4 import BeautifulSoup
 from langchain_core.tools import tool
+from utils.cache_utils import redis_cache
 
 logger = structlog.get_logger("DiagnosisWebCrawlerTool")
 
@@ -153,6 +154,7 @@ def _format_results(results: list[dict], query: str) -> str:
 
 
 @tool
+@redis_cache(ttl=86400, prefix="medicortex:diag_crawler")
 def crawl_diagnosis_articles(query: str, max_results: int = 5) -> str:
     """Search the web for diagnostic criteria, differential diagnoses, and clinical
     guidelines from reputed medical sources.

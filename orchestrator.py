@@ -203,7 +203,32 @@ def node_retrieve_knowledge(state: AgentState):
         
         if search_term and search_term.lower() != "none":
             logger.info("Extracted Search Term", term=search_term)
-            graph_context = consult_medical_knowledge.invoke(search_term)
+            raw_facts = consult_medical_knowledge.invoke(search_term)
+            
+            # ── Context Refinement (GPT-4o-mini) ──
+            # We use GPT to "clean up" raw graph data into a coherent medical narrative
+            # so that MedGemma receives structured, easy-to-parse context.
+            refinement_prompt = (
+                "You are a medical knowledge assistant. I will provide you with raw facts from a "
+                "medical knowledge graph (concepts and their relations). "
+                "Your task is to re-format these facts into a concise, structured narrative "
+                "suitable for a clinical LLM to read. "
+                "Focus on clarity and relationships. Do NOT add any information not present in the facts. "
+                "Do NOT provide a diagnosis.\n\n"
+                "Raw Facts:\n{facts}"
+            )
+            try:
+                if "No specific knowledge found" not in raw_facts:
+                    refined_response = llm.invoke([
+                        SystemMessage(content=refinement_prompt.format(facts=raw_facts))
+                    ]).content.strip()
+                    graph_context = f"Structured Knowledge for '{search_term}':\n{refined_response}"
+                    logger.info("Context Refined", term=search_term)
+                else:
+                    graph_context = raw_facts
+            except Exception as ref_err:
+                logger.warning("Context refinement failed, using raw facts", error=str(ref_err))
+                graph_context = raw_facts
         else:
             logger.info("No specific medical entity found to search")
             graph_context = "No specific medical knowledge concept found in query."
