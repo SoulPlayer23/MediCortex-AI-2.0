@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str
     
     # MinIO
-    MINIO_URL: str = "localhost:9000"
+    MINIO_URL: str = "http://localhost:9000"
     MINIO_ACCESS_KEY: str = "minioadmin"
     MINIO_SECRET_KEY: str = "minioadmin"
     MINIO_BUCKET_NAME: str = "medicortex-uploads"

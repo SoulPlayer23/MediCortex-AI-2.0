@@ -45,9 +45,14 @@ class MedicalReasoningEngine:
         print("✅ Engine Online.\n")
 
     def _aql(self, query, bind_vars=None):
-        """Helper to execute AQL"""
+        """Helper to execute AQL. 10s timeout prevents hanging when ArangoDB is unreachable."""
         try:
-            resp = requests.post(f"{ARANGO_URL}/cursor", json={"query": query, "bindVars": bind_vars or {}}, auth=AUTH)
+            resp = requests.post(
+                f"{ARANGO_URL}/cursor",
+                json={"query": query, "bindVars": bind_vars or {}},
+                auth=AUTH,
+                timeout=10,
+            )
             resp.raise_for_status()
             return resp.json().get('result', [])
         except Exception as e:

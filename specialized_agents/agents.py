@@ -7,7 +7,7 @@ from .drug_agent import drug_agent
 AGENT_REGISTRY = {
     "pubmed": pubmed_agent,
     "diagnosis": diagnosis_agent,
-    "report": report_agent,
+    "report_analyzer": report_agent,
     "patient": patient_agent,
     "drug": drug_agent
 }

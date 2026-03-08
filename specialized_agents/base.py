@@ -1,32 +1,19 @@
-import logging
-import re
-from typing import List, Dict, Any, Optional
-from langchain_core.tools import BaseTool
-from .medgemma_llm import MedGemmaLLM
-
-# Setup Logger
-logger = logging.getLogger("SpecializedAgents")
-
-# Initialize Shared LLM
-llm = MedGemmaLLM()
-
+import inspect
 import logging
 import re
 import uuid
-import datetime
 import json
 import redis
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
+
 from langchain_core.tools import BaseTool
 from langchain_core.callbacks import BaseCallbackHandler
+
 from .medgemma_llm import MedGemmaLLM
 from .protocols import AgentCard, Envelope, AgentResponse
 from config import settings
 
-# Setup Logger
 logger = logging.getLogger("SpecializedAgents")
-
-# Initialize Shared LLM
 llm = MedGemmaLLM()
 
 class AgentStreamingCallbackHandler(BaseCallbackHandler):
@@ -154,9 +141,16 @@ New input: {{input}}
         
         # ── Execution ──
         try:
-            # We'll pass a list to collect live thoughts, which the orchestrator can read if it has a reference
             live_thoughts_queue = envelope.payload.get("live_thoughts_queue")
-            output, thinking_steps = self._execute_rect_loop(user_input, live_thoughts_queue)
+
+            # Build tool_context from payload fields that tools may need.
+            # pii_mapping_json is injected here so patient tools can resolve
+            # redacted placeholders without real names ever appearing in the LLM prompt.
+            tool_context: Dict[str, Any] = {}
+            if pii_json := envelope.payload.get("pii_mapping_json"):
+                tool_context["pii_mapping_json"] = pii_json
+
+            output, thinking_steps = self._execute_rect_loop(user_input, live_thoughts_queue, tool_context)
             
             response = AgentResponse(
                 envelope_id=envelope.idempotency_key,
@@ -203,9 +197,15 @@ New input: {{input}}
             raise Exception(resp.error)
         return {"output": resp.output, "thinking": resp.thinking}
 
-    def _execute_rect_loop(self, user_input: str, live_thoughts_queue: Optional[list] = None) -> (str, List[str]):
+    def _execute_rect_loop(
+        self,
+        user_input: str,
+        live_thoughts_queue: Optional[list] = None,
+        tool_context: Optional[Dict[str, Any]] = None,
+    ) -> Tuple[str, List[str]]:
         scratchpad = ""
-        thinking_steps = []
+        thinking_steps: List[str] = []
+        tool_context = tool_context or {}
         
         def emit_thought(t: str):
             thinking_steps.append(t)
@@ -282,8 +282,23 @@ New input: {{input}}
                     action_thought = f"**Action**: Calling tool `{action}` with input `{action_input}`"
                     emit_thought(action_thought)
                     try:
-                        observation = tool.invoke(action_input)
-                        observation_msg = f"Tool Output: {str(observation)[:200]}..." # Truncate for summary
+                        # Inject tool_context keys (e.g. pii_mapping_json) transparently
+                        # so the LLM never needs to pass them explicitly in Action Input.
+                        if tool_context:
+                            try:
+                                func = getattr(tool, "func", tool)
+                                params = list(inspect.signature(func).parameters.keys())
+                                injectable = {k: v for k, v in tool_context.items() if k in params[1:]}
+                            except (ValueError, TypeError):
+                                injectable = {}
+                            if injectable:
+                                first_param = params[0] if params else "__arg1"
+                                observation = tool.invoke({first_param: action_input, **injectable})
+                            else:
+                                observation = tool.invoke(action_input)
+                        else:
+                            observation = tool.invoke(action_input)
+                        observation_msg = f"Tool Output: {str(observation)[:200]}..."
                     except Exception as e:
                         observation = f"Error: {str(e)}"
                         observation_msg = f"Tool Error: {str(e)}"

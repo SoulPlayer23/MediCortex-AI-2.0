@@ -53,8 +53,8 @@ try:
     logger.info("Initializing MedicalReasoningEngine...")
     medical_engine = MedicalReasoningEngine()
     logger.info("MedicalReasoningEngine connected", status="success")
-except ImportError:
-    logger.warning("Could not import MedicalKnowledgeEngine. Knowledge retrieval will fail.")
+except Exception as e:
+    logger.warning("MedicalReasoningEngine unavailable, knowledge retrieval disabled", error=str(e))
     medical_engine = None
 
 from specialized_agents.agents import AGENT_REGISTRY
@@ -74,9 +74,13 @@ class PrivacyManager:
         if not text:
             return "", {}
 
+        # Covers the key HIPAA-relevant entity types Presidio supports
         results = self.analyzer.analyze(
             text=text,
-            entities=["PERSON", "PHONE_NUMBER", "EMAIL_ADDRESS", "DATE_TIME"],
+            entities=[
+                "PERSON", "PHONE_NUMBER", "EMAIL_ADDRESS", "DATE_TIME",
+                "LOCATION", "US_SSN", "URL", "IP_ADDRESS",
+            ],
             language='en'
         )
         
@@ -119,6 +123,7 @@ class AgentState(TypedDict):
     input: str
     redacted_input: str
     pii_mapping: Dict[str, str]
+    file_urls: List[str]
     context: List[str]
     history: List[str]
     messages: Annotated[List[BaseMessage], operator.add]
@@ -265,7 +270,7 @@ def node_router(state: AgentState):
         "EXAMPLES: 'interactions of Metformin and Lisinopril', 'dosage for Ibuprofen', 'alternatives to Atorvastatin'.\n\n"
         "'pubmed' — Use when the user asks for research papers, clinical studies, literature reviews, or recent evidence on a topic. "
         "EXAMPLES: 'latest research on Alzheimer's', 'clinical trials for immunotherapy', 'evidence for statins'.\n\n"
-        "'report' — Use ONLY when the user provides or references a document, lab result, PDF, image, X-ray, MRI, or CT scan. "
+        "'report_analyzer' — Use ONLY when the user provides or references a document, lab result, PDF, image, X-ray, MRI, or CT scan. "
         "EXAMPLES: 'analyze my lab report', 'what does this X-ray show', 'interpret my HbA1c result'.\n\n"
         "'patient' — Use ONLY when the user asks about a specific named or identified patient's records, history, medications, or vitals. "
         "EXAMPLES: 'show me John's records', 'what medications is patient PT-10042 on'.\n\n"
@@ -312,34 +317,30 @@ def make_agent_node(agent_key: str):
             f"Current Request: {state['redacted_input']}\n\n"
             f"Context from Knowledge Core:\n{context_str}"
         )
-        
+
+        # Inject file URLs for the report agent so its tools can download and analyze them
+        if agent_key == "report_analyzer" and state.get("file_urls"):
+            enhanced_input += "\n\nFiles to analyze:\n" + "\n".join(state["file_urls"])
+
         # A2A Protocol: Create Envelope with trace_id propagation (A2A §5.1)
         try:
             envelope = Envelope(
                 trace_id=state.get("trace_id", ""),
                 sender_id="orchestrator",
                 receiver_id=agent_key,
-                payload={"input": enhanced_input}
+                payload={"input": enhanced_input},
             )
-            
-            # HIPAA: Pass PII mapping to patient agent for identifier resolution
+
+            # HIPAA: Pass PII mapping to patient agent via payload only.
+            # Never inject real PII values into enhanced_input — it would reach
+            # the OpenAI fallback LLM if MedGemma is offline.
             if agent_key == "patient":
                 import json as _json
-                pii_map = state.get("pii_mapping", {})
-                envelope.payload["pii_mapping_json"] = _json.dumps(pii_map)
-                # Also inject the mapping hint into the input so the agent knows about it
-                enhanced_input += f"\n\nPII Mapping (for tool use only): {_json.dumps(pii_map)}"
-                
-            # Bind the live thoughts list so the agent can stream thoughts out
-            envelope.payload["input"] = enhanced_input
-            
-            # Bind the live thoughts list so the agent can stream thoughts out
-            envelope.payload["input"] = enhanced_input
-            
-            # Extract live_thoughts from global dict using session_id
+                envelope.payload["pii_mapping_json"] = _json.dumps(state.get("pii_mapping", {}))
+
+            # Bind live thoughts list so the agent can stream thoughts in real-time
             session_id_str = state.get("session_id", "default")
             live_thoughts = ACTIVE_STREAMS.get(session_id_str, [])
-                 
             envelope.payload["live_thoughts_queue"] = live_thoughts
             
             # Call Agent via Process
@@ -372,13 +373,13 @@ def make_agent_node(agent_key: str):
 
 node_pubmed = make_agent_node("pubmed")
 node_diagnosis = make_agent_node("diagnosis")
-node_report = make_agent_node("report")
+node_report_analyzer = make_agent_node("report_analyzer")
 node_patient = make_agent_node("patient")
 node_drug = make_agent_node("drug")
 
 def node_aggregator(state: AgentState):
     logger.info("NODE: AGGREGATOR")
-    raw_outputs = "\\n\\n".join(state["agent_outputs"])
+    raw_outputs = "\n\n".join(state["agent_outputs"])
     
     formatting_prompt = (
         "You are the MediCortex Interface. Format the following medical agent reports into "
@@ -510,15 +511,24 @@ def node_restore_privacy(state: AgentState):
 MAX_CONCURRENT_AGENTS = 3
 
 def route_decision(state: AgentState):
+    routes = []
+
+    # Always route to report_analyzer if files were attached (A2A §4.1)
+    if state.get("file_urls"):
+        routes.append("report_analyzer")
+
     last_msg = state["messages"][-1].content
     try:
-        routes = eval(last_msg) 
-        valid_routes = [r for r in routes if r in AGENT_REGISTRY]
-        # A2A §4.1 — Circuit breaker: cap concurrent agent calls
-        valid_routes = valid_routes[:MAX_CONCURRENT_AGENTS]
-        return valid_routes if valid_routes else ["diagnosis"]
-    except:
-        return ["diagnosis"] 
+        llm_routes = json.loads(last_msg.replace("'", '"'))
+        for r in llm_routes:
+            if r in AGENT_REGISTRY and r not in routes:
+                routes.append(r)
+    except Exception:
+        pass
+
+    # A2A §4.1 — Circuit breaker: cap concurrent agent calls
+    valid_routes = [r for r in routes if r in AGENT_REGISTRY][:MAX_CONCURRENT_AGENTS]
+    return valid_routes or ["diagnosis"]
 
 workflow = StateGraph(AgentState)
 workflow.add_node("analyze_privacy", node_analyze_privacy)
@@ -526,7 +536,7 @@ workflow.add_node("retrieve_knowledge", node_retrieve_knowledge)
 workflow.add_node("router", node_router)
 workflow.add_node("pubmed", node_pubmed)
 workflow.add_node("diagnosis", node_diagnosis)
-workflow.add_node("report", node_report)
+workflow.add_node("report_analyzer", node_report_analyzer)
 workflow.add_node("patient", node_patient)
 workflow.add_node("drug", node_drug)
 workflow.add_node("aggregator", node_aggregator)
@@ -594,45 +604,51 @@ async def chat_stream_endpoint(request: ChatRequest, db: AsyncSession = Depends(
                 session_id = new_session.id
                 yield f"data: {json.dumps({'type': 'session_id', 'content': str(session_id)})}\n\n"
             
-            # 2. Save User Message
-            await chat_service.add_message(db, str(session_id), "user", request.message)
-            
-            # 3. Retrieve History
+            # 2. Extract file URLs from attachments (structured handoff to report agent)
+            file_urls = [a["url"] for a in (request.attachments or []) if a.get("url")]
+
+            # 3. Save User Message (with attachments for display)
+            await chat_service.add_message(
+                db, str(session_id), "user", request.message,
+                attachments=request.attachments or [],
+            )
+
+            # 4. Retrieve History
             full_history = await chat_service.get_messages(db, str(session_id))
-            past_turns = full_history[:-1] 
+            past_turns = full_history[:-1]
             history_context = [f"{m.role.capitalize()}: {m.content}" for m in past_turns[-10:]]
 
-            # 4. Stream Orchestrator Events
+            # 5. Stream Orchestrator Events
             agent_thoughts = []
             final_output = ""
             msg_metadata = {
                 "llm_used": "MedGemma (via HF) / OpenAI Router",
                 "judge_score": None,
                 "judge_reason": None,
-                "judge_confidence": None
+                "judge_confidence": None,
             }
 
             # Emit initial "thinking" state to show immediate activity
             yield f"data: {json.dumps({'type': 'thought', 'content': 'Querying Knowledge Core...'})}\n\n"
 
             import asyncio
-            
+
             # Shared mutable state for the stream
             live_thoughts = []
             ACTIVE_STREAMS[str(session_id)] = live_thoughts
-            
+
             final_output_container = {}
-            
+
             async def run_graph():
                 try:
-                    # Run the graph in the background
                     result = await orchestrator_graph.ainvoke(
                         {
-                            "input": request.message, 
+                            "input": request.message,
                             "messages": [],
                             "history": history_context,
                             "agent_thoughts": [],
-                            "session_id": str(session_id)
+                            "file_urls": file_urls,
+                            "session_id": str(session_id),
                         }
                     )
                     final_output_container["result"] = result
@@ -707,20 +723,25 @@ async def chat_endpoint(request: ChatRequest, db: AsyncSession = Depends(get_db)
             new_session = await chat_service.create_session(db)
             session_id = new_session.id
             
-        # 2. Save User Message
-        await chat_service.add_message(db, str(session_id), "user", request.message)
-        
+        # 2. Extract file URLs and save user message with attachments
+        file_urls = [a["url"] for a in (request.attachments or []) if a.get("url")]
+        await chat_service.add_message(
+            db, str(session_id), "user", request.message,
+            attachments=request.attachments or [],
+        )
+
         # 3. Retrieve History for Context
         full_history = await chat_service.get_messages(db, str(session_id))
-        past_turns = full_history[:-1] 
+        past_turns = full_history[:-1]
         history_context = [f"{m.role.capitalize()}: {m.content}" for m in past_turns[-10:]]
 
         # 4. Invoke Orchestrator
         result = await orchestrator_graph.ainvoke({
-            "input": request.message, 
+            "input": request.message,
             "messages": [],
             "history": history_context,
-            "agent_thoughts": [] # Initialize empty list
+            "agent_thoughts": [],
+            "file_urls": file_urls,
         })
         response_text = result.get("final_output")
         agent_thinking = result.get("agent_thoughts", [])

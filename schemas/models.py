@@ -6,6 +6,7 @@ from uuid import UUID
 class ChatRequest(BaseModel):
     message: str
     session_id: Optional[UUID] = None
+    attachments: Optional[List[dict]] = None
 
 class MessageAttachment(BaseModel):
     filename: str

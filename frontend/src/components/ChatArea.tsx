@@ -77,20 +77,13 @@ const ChatArea = ({ isSidebarOpen, toggleSidebar, sessionId, setSessionId }: Cha
         setMessages((prev) => [...prev, initialAiMsg]);
 
         try {
-            // Append attachment URLs to content if any
-            let finalContent = content;
-            if (attachments.length > 0) {
-                finalContent += "\n\n[Attachments]:\n" + attachments.map(a => `${a.filename}: ${a.url}`).join("\n");
-            }
-
             const response = await fetch('http://localhost:8001/chat/stream', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    message: finalContent,
-                    session_id: sessionId
+                    message: content,
+                    session_id: sessionId,
+                    attachments: attachments.length > 0 ? attachments : undefined,
                 }),
             });
 
