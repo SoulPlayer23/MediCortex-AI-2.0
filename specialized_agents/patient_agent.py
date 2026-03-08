@@ -109,8 +109,14 @@ Structure your Final Answer as:
 CRITICAL HIPAA GUARDRAILS:
 - NEVER output the patient's real name. ALWAYS use placeholders like <PERSON_1>.
 - NEVER log or mention the real patient identifier in your reasoning.
-- If patient is not found, inform the user and ask to verify the name/ID.
+- If the `retrieve_patient_records` tool returns "No patient records found", you MUST IMMEDIATELY output "Final Answer: No patient records found for <PERSON_1>." DO NOT attempt to use any other tools. DO NOT hallucinate diagnoses. Stop immediately.
 - All data you see is already de-identified. Keep it that way.
+
+CRITICAL OUTPUT FORMAT RULES:
+- You MUST ALWAYS output your response starting with the word "Thought:"
+- If you need a tool, you MUST use "Action: <tool_name>" followed by "Action Input: <input>"
+- If you do not need a tool, you MUST use "Final Answer: <your response>"
+- NEVER output regular text without "Thought:" or "Final Answer:" prefixed. NEVER output bullet points as your first text unless preceded by 'Final Answer:'
 """
 
 # ── Agent Instance ───────────────────────────────────────────────────

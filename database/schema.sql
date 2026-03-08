@@ -20,7 +20,9 @@ CREATE TABLE chat_messages (
     role TEXT NOT NULL,
     content TEXT NOT NULL,
     timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    attachments JSONB DEFAULT '[]'::jsonb
+    attachments JSONB DEFAULT '[]'::jsonb,
+    thinking JSONB DEFAULT '[]'::jsonb,
+    message_metadata JSONB DEFAULT '{}'::jsonb
 );
 
 -- Create Indexes

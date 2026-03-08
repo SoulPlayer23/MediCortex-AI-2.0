@@ -4,6 +4,7 @@ from typing import Any, List, Optional
 from langchain_core.language_models.llms import LLM
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 from pydantic import Field
+from config import settings
 
 logger = logging.getLogger("MedGemmaLLM")
 
@@ -41,7 +42,7 @@ class MedGemmaLLM(LLM):
         }
 
         try:
-            response = requests.post(self.api_url, json=payload, timeout=self.timeout)
+            response = requests.post(self.api_url, json=payload, timeout=60)
             response.raise_for_status()
             text_output = response.json().get("response", "")
 
@@ -59,7 +60,7 @@ class MedGemmaLLM(LLM):
             try:
                 from langchain_openai import ChatOpenAI
                 from langchain_core.messages import HumanMessage
-                from config import settings
+                from langchain_core.messages import HumanMessage, SystemMessage
 
                 fallback = ChatOpenAI(
                     model="gpt-4o-mini",
@@ -67,7 +68,22 @@ class MedGemmaLLM(LLM):
                     api_key=settings.OPENAI_API_KEY,
                     max_tokens=self.max_tokens,
                 )
-                text_output = fallback.invoke([HumanMessage(content=prompt)]).content
+                
+                # Split prompt into System and Human messages for better instruction following
+                if "New input:" in prompt:
+                    parts = prompt.split("New input:")
+                    sys_msg = parts[0].strip()
+                    human_msg = "New input:" + parts[1]
+                    messages = [SystemMessage(content=sys_msg), HumanMessage(content=human_msg)]
+                else:
+                    messages = [HumanMessage(content=prompt)]
+
+                # Pass kwargs explicitly (including stop words for ReAct)
+                invoke_kwargs = {}
+                if stop:
+                     invoke_kwargs["stop"] = stop
+                     
+                text_output = fallback.invoke(messages, **invoke_kwargs).content
 
                 if stop:
                     for stop_seq in stop:

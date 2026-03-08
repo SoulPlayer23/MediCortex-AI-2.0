@@ -28,6 +28,7 @@ from services.minio_service import minio_service
 from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, BaseMessage
+from langchain_core.runnables.config import RunnableConfig
 from langchain_core.tools import tool
 from langgraph.graph import StateGraph, END
 from presidio_analyzer import AnalyzerEngine
@@ -127,6 +128,12 @@ class AgentState(TypedDict):
     judge_score: Optional[int]            # A2A §5.2 — set by node_reviewer
     error: Optional[str]
     trace_id: Optional[str]
+    session_id: Optional[str]
+
+# ==========================================
+# ⚡ SSE STREAMING SHARED STATE
+# ==========================================
+ACTIVE_STREAMS = {}
 
 # ==========================================
 # 🛠️ TOOLS & LLM
@@ -291,7 +298,7 @@ def node_router(state: AgentState):
     return {"messages": [AIMessage(content=str(routes))]}
 
 def make_agent_node(agent_key: str):
-    def _node(state: AgentState):
+    def _node(state: AgentState, config: RunnableConfig):
         logger.info(f"NODE: AGENT [{agent_key.upper()}]")
         agent_executor = AGENT_REGISTRY.get(agent_key)
         if not agent_executor:
@@ -322,7 +329,18 @@ def make_agent_node(agent_key: str):
                 envelope.payload["pii_mapping_json"] = _json.dumps(pii_map)
                 # Also inject the mapping hint into the input so the agent knows about it
                 enhanced_input += f"\n\nPII Mapping (for tool use only): {_json.dumps(pii_map)}"
-                envelope.payload["input"] = enhanced_input
+                
+            # Bind the live thoughts list so the agent can stream thoughts out
+            envelope.payload["input"] = enhanced_input
+            
+            # Bind the live thoughts list so the agent can stream thoughts out
+            envelope.payload["input"] = enhanced_input
+            
+            # Extract live_thoughts from global dict using session_id
+            session_id_str = state.get("session_id", "default")
+            live_thoughts = ACTIVE_STREAMS.get(session_id_str, [])
+                 
+            envelope.payload["live_thoughts_queue"] = live_thoughts
             
             # Call Agent via Process
             response = agent_executor.process(envelope)
@@ -428,7 +446,7 @@ Response to evaluate:
 {truncated}
 
 Reply with ONLY a JSON object in this exact format, no other text:
-{{"score": <1-5>, "reason": "<one sentence>"}}"""
+{{"score": <1-5>, "reason": "<one sentence>", "confidence": "<0-100>%"}}"""
 
     def _call_groq(model_name: str) -> dict:
         judge_llm = ChatGroq(
@@ -457,6 +475,10 @@ Reply with ONLY a JSON object in this exact format, no other text:
 
     score = int(judge_result.get("score", 3))
     reason = judge_result.get("reason", "")
+    confidence = judge_result.get("confidence", "95%")
+
+    # Store metadata on state so we can pick it up
+    return_payload: dict = {"judge_score": score, "judge_reason": reason, "judge_confidence": confidence}
 
     # ── Append clinical disclaimer if quality is low ──────────────────
     current_output = state.get("final_output", "")
@@ -469,9 +491,9 @@ Reply with ONLY a JSON object in this exact format, no other text:
             f"*(Quality Score: {score}/5 — {reason})*"
         )
         logger.warning("reviewer_low_score_disclaimer_appended", score=score, reason=reason)
-        return {"final_output": current_output + disclaimer, "judge_score": score}
+        return_payload["final_output"] = current_output + disclaimer
 
-    return {"judge_score": score}
+    return return_payload
 
 
 def node_restore_privacy(state: AgentState):
@@ -583,66 +605,91 @@ async def chat_stream_endpoint(request: ChatRequest, db: AsyncSession = Depends(
             # 4. Stream Orchestrator Events
             agent_thoughts = []
             final_output = ""
+            msg_metadata = {
+                "llm_used": "MedGemma (via HF) / OpenAI Router",
+                "judge_score": None,
+                "judge_reason": None,
+                "judge_confidence": None
+            }
 
             # Emit initial "thinking" state to show immediate activity
             yield f"data: {json.dumps({'type': 'thought', 'content': 'Querying Knowledge Core...'})}\n\n"
 
-            async for event in orchestrator_graph.astream_events(
-                {
-                    "input": request.message, 
-                    "messages": [],
-                    "history": history_context,
-                    "agent_thoughts": []
-                },
-                version="v2"
-            ):
-                event_type = event["event"]
+            import asyncio
+            
+            # Shared mutable state for the stream
+            live_thoughts = []
+            ACTIVE_STREAMS[str(session_id)] = live_thoughts
+            
+            final_output_container = {}
+            
+            async def run_graph():
+                try:
+                    # Run the graph in the background
+                    result = await orchestrator_graph.ainvoke(
+                        {
+                            "input": request.message, 
+                            "messages": [],
+                            "history": history_context,
+                            "agent_thoughts": [],
+                            "session_id": str(session_id)
+                        }
+                    )
+                    final_output_container["result"] = result
+                except Exception as e:
+                    final_output_container["error"] = e
+                    
+            # Start graph execution in the background
+            graph_task = asyncio.create_task(run_graph())
+            
+            last_thought_idx = 0
+            # Poll for new thoughts while the graph is running
+            while not graph_task.done():
+                while last_thought_idx < len(live_thoughts):
+                    thought = live_thoughts[last_thought_idx]
+                    yield f"data: {json.dumps({'type': 'thought', 'content': thought})}\n\n"
+                    if thought not in agent_thoughts:
+                         agent_thoughts.append(thought)
+                    last_thought_idx += 1
+                await asyncio.sleep(0.1)
                 
-                # Capture Agent Thoughts (on_chain_end from agent nodes)
-                if event_type == "on_chain_end":
-                    data = event["data"].get("output")
-                    if data and isinstance(data, dict) and "agent_thoughts" in data:
-                        thoughts = data["agent_thoughts"]
-                        for thought in thoughts:
-                            if thought not in agent_thoughts: # Avoid duplicates
-                                agent_thoughts.append(thought)
-                                yield f"data: {json.dumps({'type': 'thought', 'content': thought})}\n\n"
+            # Process final output after graph completes
+            if "error" in final_output_container:
+                raise final_output_container["error"]
                 
-                # Capture Token Streaming (for final response) from Aggregator/RestorePrivacy or LLM
-                if event_type == "on_chat_model_stream":
-                    # Check if this stream is from the final aggregator/refiner step
-                    # To be safe, we stream tokens that are NOT part of the routing/internal logic
-                    # A simplified approach is to stream everything and filter, but better to check source.
-                    # Given the graph, 'aggregator' uses LLM.
-                    if event["metadata"].get("langgraph_node") == "aggregator":
-                        chunk = event["data"]["chunk"].content
-                        if chunk:
-                            yield f"data: {json.dumps({'type': 'token', 'content': chunk})}\n\n"
-                            final_output += chunk
+            graph_output = final_output_container.get("result", {})
+            graph_final = graph_output.get("final_output")
+            
+            # Flush any remaining thoughts
+            while last_thought_idx < len(live_thoughts):
+                thought = live_thoughts[last_thought_idx]
+                yield f"data: {json.dumps({'type': 'thought', 'content': thought})}\n\n"
+                if thought not in agent_thoughts:
+                    agent_thoughts.append(thought)
+                last_thought_idx += 1
+            
+            if "judge_score" in graph_output:
+                msg_metadata["judge_score"] = graph_output["judge_score"]
+                msg_metadata["judge_reason"] = graph_output.get("judge_reason")
+                msg_metadata["judge_confidence"] = graph_output.get("judge_confidence")
+                yield f"data: {json.dumps({'type': 'metadata', 'content': msg_metadata})}\n\n"
 
-                # Capture Final Output (fallback/confirmation)
-                if event_type == "on_chain_end" and event["name"] == "LangGraph":
-                    # If we missed capturing tokens (e.g. non-LLM aggregator), use final output
-                    # But if we streamed tokens, final_output should match. 
-                    # We'll use the graph's final output for persistence to be safe.
-                    graph_final = event["data"]["output"].get("final_output")
-                    if graph_final and not final_output:
-                         # If we didn't stream anything, send it all at once (fallback)
-                         final_output = graph_final
-                         yield f"data: {json.dumps({'type': 'response', 'content': final_output})}\n\n"
-                    elif graph_final:
-                         # Ensure persistence uses the clean final state
-                         final_output = graph_final
+            if graph_final:
+                 final_output = graph_final
+                 yield f"data: {json.dumps({'type': 'response', 'content': final_output})}\n\n"
 
             # 5. Save AI Response to DB (only once)
             if final_output:
-                 await chat_service.add_message(db, str(session_id), "assistant", final_output, thinking=agent_thoughts)
+                 await chat_service.add_message(db, str(session_id), "assistant", final_output, thinking=agent_thoughts, metadata=msg_metadata)
             
             yield "data: [DONE]\n\n"
 
         except Exception as e:
             logger.error("Streaming error", error=str(e))
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        finally:
+            if str(session_id) in ACTIVE_STREAMS:
+                del ACTIVE_STREAMS[str(session_id)]
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
@@ -678,13 +725,21 @@ async def chat_endpoint(request: ChatRequest, db: AsyncSession = Depends(get_db)
         response_text = result.get("final_output")
         agent_thinking = result.get("agent_thoughts", [])
         
+        msg_metadata = {
+            "llm_used": "MedGemma (via HF) / OpenAI Router",
+            "judge_score": result.get("judge_score"),
+            "judge_reason": result.get("judge_reason"),
+            "judge_confidence": result.get("judge_confidence")
+        }
+        
         # 5. Save AI Response
-        await chat_service.add_message(db, str(session_id), "assistant", response_text, thinking=agent_thinking)
+        await chat_service.add_message(db, str(session_id), "assistant", response_text, thinking=agent_thinking, metadata=msg_metadata)
         
         return ChatResponse(
             response=response_text,
             session_id=session_id,
-            thinking=agent_thinking
+            thinking=agent_thinking,
+            metadata=msg_metadata
         )
     except Exception as e:
         logger.error("Error processing request", error=str(e))

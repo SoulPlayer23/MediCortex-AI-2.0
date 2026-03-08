@@ -15,6 +15,7 @@ import httpx
 import structlog
 from bs4 import BeautifulSoup
 from langchain_core.tools import tool
+from utils.cache_utils import redis_cache
 
 logger = structlog.get_logger("DrugInteractionTool")
 
@@ -137,6 +138,7 @@ def _format_results(results: list[dict], query: str) -> str:
 
 
 @tool
+@redis_cache(ttl=86400, prefix="medicortex:drug_interaction")
 def check_drug_interactions(medications: str, patient_conditions: str = "") -> str:
     """Check for drug-drug interactions, contraindications, and adverse effects.
     

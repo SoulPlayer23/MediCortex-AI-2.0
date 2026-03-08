@@ -73,7 +73,7 @@ class TestCheckDrugInteractions:
 
         with patch("tools.drug_interaction_tools.httpx.Client", return_value=mock_client):
             result = check_drug_interactions.invoke({
-                "medications": "Aspirin",
+                "medications": "Aspirin_Timeout_Test",
                 "patient_conditions": ""
             })
 

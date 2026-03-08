@@ -18,6 +18,7 @@ import json
 import redis
 from typing import List, Dict, Any, Optional
 from langchain_core.tools import BaseTool
+from langchain_core.callbacks import BaseCallbackHandler
 from .medgemma_llm import MedGemmaLLM
 from .protocols import AgentCard, Envelope, AgentResponse
 from config import settings
@@ -27,6 +28,17 @@ logger = logging.getLogger("SpecializedAgents")
 
 # Initialize Shared LLM
 llm = MedGemmaLLM()
+
+class AgentStreamingCallbackHandler(BaseCallbackHandler):
+    """Callback handler to intercept LLM tokens and route them to a streaming queue/list."""
+    def __init__(self, callback_list: list):
+        self.callback_list = callback_list
+
+    def on_llm_new_token(self, token: str, **kwargs: Any) -> Any:
+        # If we just want thoughts, token-by-token isn't strictly necessary for the thought accordion,
+        # but we can capture it here if we want to stream the raw ReAct text. We'll skip it for now and
+        # rely on the regex parser to emit complete thoughts.
+        pass
 
 class A2ABaseAgent:
     """
@@ -142,7 +154,10 @@ New input: {{input}}
         
         # ── Execution ──
         try:
-            output, thinking_steps = self._execute_rect_loop(user_input)
+            # We'll pass a list to collect live thoughts, which the orchestrator can read if it has a reference
+            live_thoughts_queue = envelope.payload.get("live_thoughts_queue")
+            output, thinking_steps = self._execute_rect_loop(user_input, live_thoughts_queue)
+            
             response = AgentResponse(
                 envelope_id=envelope.idempotency_key,
                 output=output,
@@ -188,42 +203,74 @@ New input: {{input}}
             raise Exception(resp.error)
         return {"output": resp.output, "thinking": resp.thinking}
 
-    def _execute_rect_loop(self, user_input: str) -> (str, List[str]):
+    def _execute_rect_loop(self, user_input: str, live_thoughts_queue: Optional[list] = None) -> (str, List[str]):
         scratchpad = ""
         thinking_steps = []
         
+        def emit_thought(t: str):
+            thinking_steps.append(t)
+            if live_thoughts_queue is not None:
+                live_thoughts_queue.append(t)
+
         for i in range(self.max_iterations):
             # Construct Prompt
             prompt = self.template.format(input=user_input, agent_scratchpad=scratchpad)
             
+            # Force the model to start with Thought if it's the first iteration or scratchpad is empty
+            if not scratchpad.strip():
+                 prompt += "\nFormat your first string starting strictly with 'Thought:' or 'Final Answer:'"
+            
             # Call LLM
             step_msg = f"Thinking (Step {i+1})..."
             logger.info(f"[{self.name}] {step_msg}")
-            # thinking_steps.append(step_msg) # Optional: add step header to thinking
             
             response = self.llm.invoke(prompt)
             
-            # Parse Response
-            action_match = re.search(r"Action:\s*(.+)", response)
-            input_match = re.search(r"Action Input:\s*(.+)", response)
-            final_answer_match = re.search(r"Final Answer:\s*(.+)", response, re.DOTALL)
-            
-            thought_match = re.search(r"Thought:\s*(.+?)(?=Action:|Final Answer:|$)", response, re.DOTALL)
+            # Clean response of potential markdown code blocks
+            clean_resp = response.replace("```json", "").replace("```", "").strip()
+
+            # Robust ReAct parsing
+            thought_text = ""
+            action_text = ""
+            action_input_text = ""
+            final_answer_text = ""
+
+            # Try to extract Thought
+            thought_match = re.search(r"Thought:\s*(.*?)(?=\nAction:|\nFinal Answer:|$)", clean_resp, re.DOTALL | re.IGNORECASE)
             if thought_match:
-                thought_content = thought_match.group(1).strip()
-                thinking_steps.append(thought_content)
-            elif "Thought:" in response:
-                 # Fallback if regex misses but Thought exists
-                 parts = response.split("Thought:")
-                 if len(parts) > 1:
-                     thinking_steps.append(parts[1].split("Action:")[0].strip())
+                thought_text = thought_match.group(1).strip()
+            elif "Thought:" in clean_resp and "Action:" not in clean_resp and "Final Answer:" not in clean_resp:
+                # The whole response might just be a thought
+                thought_text = clean_resp.replace("Thought:", "").strip()
+
+            # Try to extract Action & Input
+            action_match = re.search(r"Action:\s*([^\n]+)", clean_resp, re.IGNORECASE)
+            input_match = re.search(r"Action Input:\s*(.*?)(?=\nObservation:|\nThought:|\nFinal Answer:|$)", clean_resp, re.DOTALL | re.IGNORECASE)
             
+            if action_match:
+                action_text = action_match.group(1).strip()
+            if input_match:
+                action_input_text = input_match.group(1).strip()
+
+            # Try to extract Final Answer
+            final_answer_match = re.search(r"Final Answer:\s*(.+)", clean_resp, re.DOTALL | re.IGNORECASE)
             if final_answer_match:
-                return final_answer_match.group(1).strip(), thinking_steps
+                final_answer_text = final_answer_match.group(1).strip()
+
+            # Emit thought
+            if thought_text:
+                emit_thought(f"**[{self.name.title()}]**: {thought_text}")
+            elif clean_resp:
+                # If no formal thought block was found but there is text, emit a chunk of it as a thought
+                snippet = clean_resp[:300] + "..." if len(clean_resp) > 300 else clean_resp
+                emit_thought(f"**[{self.name.title()}]**: {snippet}")
+
+            if final_answer_text:
+                return final_answer_text, thinking_steps
             
-            if action_match and input_match:
-                action = action_match.group(1).strip()
-                action_input = input_match.group(1).strip()
+            if action_text and action_input_text:
+                action = action_text
+                action_input = action_input_text
                 
                 # Check for brackets removal if model adds them
                 action = action.strip("[]")
@@ -232,7 +279,8 @@ New input: {{input}}
                 observation_msg = ""
                 if tool:
                     logger.info(f"[{self.name}] Calling Tool: {action} with '{action_input}'")
-                    thinking_steps.append(f"**Action**: Calling tool `{action}` with input `{action_input}`")
+                    action_thought = f"**Action**: Calling tool `{action}` with input `{action_input}`"
+                    emit_thought(action_thought)
                     try:
                         observation = tool.invoke(action_input)
                         observation_msg = f"Tool Output: {str(observation)[:200]}..." # Truncate for summary
@@ -243,17 +291,19 @@ New input: {{input}}
                     observation = f"Error: Tool '{action}' not found."
                     observation_msg = f"Error: Tool '{action}' not found."
                 
-                thinking_steps.append(f"**Observation**: {observation_msg}")
+                obs_thought = f"**Observation**: {observation_msg}"
+                emit_thought(obs_thought)
 
                 # Update scratchpad
                 scratchpad += f"{response}\nObservation: {observation}\n"
                 continue
             
             # Fallback
-            if "Thought:" not in response and "Action:" not in response:
+            if "Thought:" not in response and "Action:" not in response and "Final Answer:" not in response:
+                 # If the model just outputs dialogue, treat it as a final answer to prevent infinite looping
                  return response.strip(), thinking_steps
             
-            # If stuck
-            scratchpad += f"{response}\nObservation: Could not parse action. Review format.\n"
+            # If stuck parsing Action
+            scratchpad += f"{response}\nObservation: Could not parse Action or Final Answer. Please stick EXACTLY to the requested format (Thought: -> Action: -> Action Input: OR Final Answer:).\n"
 
         return "Agent reached max iterations without final answer.", thinking_steps

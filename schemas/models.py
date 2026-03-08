@@ -20,8 +20,9 @@ class MessageResponse(BaseModel):
     timestamp: datetime
     attachments: List[Any] = Field(default_factory=list) # JSONB content
     thinking: List[str] = Field(default_factory=list) # JSONB content
+    metadata: dict = Field(default_factory=dict, alias="message_metadata") # JSONB metadata
     
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 class SessionResponse(BaseModel):
     id: UUID
@@ -35,6 +36,7 @@ class ChatResponse(BaseModel):
     response: str
     session_id: UUID
     thinking: List[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
 
 class UploadResponse(BaseModel):
     url: str

@@ -25,5 +25,6 @@ class ChatMessage(Base):
     timestamp = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
     attachments = Column(JSONB, server_default=text("'[]'::jsonb"))
     thinking = Column(JSONB, server_default=text("'[]'::jsonb"))
+    message_metadata = Column("message_metadata", JSONB, server_default=text("'{}'::jsonb"))
 
     session = relationship("ChatSession", back_populates="messages")

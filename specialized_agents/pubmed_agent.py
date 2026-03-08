@@ -77,9 +77,9 @@ DECISION RULES:
 3. For COMPREHENSIVE questions (e.g., "Tell me everything about X") → use BOTH tools.
 4. Always start with the most relevant tool, then use the second if the first result is insufficient.
 
-═══ OUTPUT FORMAT ═══
+Structure your output EXACTLY as follows. You MUST begin your final output with "Final Answer:" so that the system can parse it.
 
-Structure your Final Answer as:
+Final Answer:
 1. **Key Findings** — The most important takeaway in 1-2 sentences.
 2. **Research Evidence** — Findings from PubMed (if used), citing paper titles and URLs.
 3. **Clinical Guidance** — Findings from medical websites (if used), citing source and URL.
@@ -91,6 +91,7 @@ CRITICAL RULES:
 - If conflicting information is found, flag the discrepancy explicitly.
 - Prefer recent publications (last 5 years) when possible.
 - State limitations of the evidence when applicable.
+- YOU MUST NEVER output a summary of your process (e.g., "I searched PubMed and found..."). ONLY output the actual clinical findings.
 """
 
 # ── Agent Instance ───────────────────────────────────────────────────

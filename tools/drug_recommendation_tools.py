@@ -15,6 +15,7 @@ import httpx
 import structlog
 from bs4 import BeautifulSoup
 from langchain_core.tools import tool
+from utils.cache_utils import redis_cache
 
 logger = structlog.get_logger("DrugRecommendationTool")
 
@@ -92,6 +93,7 @@ def _extract_text_content(html: str, max_chars: int = 1500) -> str:
 
 
 @tool
+@redis_cache(ttl=86400, prefix="medicortex:drug_recommendation")
 def recommend_drugs(condition: str, query_type: str = "recommendation", patient_info: str = "") -> str:
     """Retrieve drug recommendations, dosage usage, or alternative medications.
     

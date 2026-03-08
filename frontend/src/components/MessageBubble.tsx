@@ -9,11 +9,13 @@ interface MessageBubbleProps {
     role: 'user' | 'assistant';
     content: string;
     thinking?: string[];
+    metadata?: any;
 }
 
-const MessageBubble = ({ role, content, thinking }: MessageBubbleProps) => {
+const MessageBubble = ({ role, content, thinking, metadata }: MessageBubbleProps) => {
     const isUser = role === 'user';
     const [isThinkingOpen, setIsThinkingOpen] = useState(false);
+    const [isMetadataOpen, setIsMetadataOpen] = useState(false);
 
     return (
         <div className={clsx("w-full py-6 md:py-8", isUser ? "bg-transparent" : "bg-transparent")}>
@@ -67,11 +69,52 @@ const MessageBubble = ({ role, content, thinking }: MessageBubbleProps) => {
                                             </div>
                                         ))
                                     ) : (
-                                        <div className="text-xs text-zinc-500 italic flex items-center gap-2">
-                                            <BrainCircuit className="w-3 h-3 animate-pulse" />
-                                            Initializing agents...
-                                        </div>
+                                        !content && (
+                                            <div className="text-xs text-zinc-500 italic flex items-center gap-2">
+                                                <BrainCircuit className="w-3 h-3 animate-pulse" />
+                                                Initializing agents...
+                                            </div>
+                                        )
                                     )}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* Verification & Metadata (Accordion) */}
+                    {!isUser && metadata && (
+                        <div className="mb-4">
+                            <button
+                                onClick={() => setIsMetadataOpen(!isMetadataOpen)}
+                                className="flex items-center gap-2 text-xs font-medium text-emerald-400/80 hover:text-emerald-300 transition-colors bg-emerald-900/20 px-3 py-1.5 rounded-lg w-fit mb-2 border border-emerald-900/30"
+                            >
+                                {isMetadataOpen ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                                <span>Verification & Metadata</span>
+                            </button>
+
+                            {isMetadataOpen && (
+                                <div className="pl-4 border-l-2 border-emerald-800/50 space-y-3 my-3 animate-in slide-in-from-top-2 duration-200">
+                                    <div className="bg-zinc-900/60 rounded-md p-3 text-xs text-zinc-300 font-mono border border-zinc-800/50">
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <div className="text-zinc-500">LLM Engine:</div>
+                                            <div className="text-emerald-400">{metadata.llm_used || 'Unknown'}</div>
+
+                                            <div className="text-zinc-500">Judge Score:</div>
+                                            <div className="text-zinc-300">{metadata.judge_score ? `${metadata.judge_score}/5` : 'N/A'}</div>
+
+                                            {metadata.judge_confidence && (
+                                                <>
+                                                    <div className="text-zinc-500">Confidence:</div>
+                                                    <div className="text-zinc-300">{metadata.judge_confidence}</div>
+                                                </>
+                                            )}
+                                        </div>
+                                        {metadata.judge_reason && (
+                                            <div className="mt-2 pt-2 border-t border-zinc-800/50 text-zinc-400 italic">
+                                                "{metadata.judge_reason}"
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </div>

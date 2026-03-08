@@ -23,18 +23,21 @@ class ChatService:
         result = await db.execute(select(ChatSession).where(ChatSession.id == session_id))
         return result.scalar_one_or_none()
 
-    async def add_message(self, db: AsyncSession, session_id: str, role: str, content: str, attachments: list = None, thinking: list = None) -> ChatMessage:
+    async def add_message(self, db: AsyncSession, session_id: str, role: str, content: str, attachments: list = None, thinking: list = None, metadata: dict = None) -> ChatMessage:
         if attachments is None:
             attachments = []
         if thinking is None:
             thinking = []
+        if metadata is None:
+            metadata = {}
             
         new_message = ChatMessage(
             session_id=session_id,
             role=role,
             content=content,
             attachments=attachments,
-            thinking=thinking
+            thinking=thinking,
+            message_metadata=metadata
         )
         db.add(new_message)
         

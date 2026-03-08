@@ -9,6 +9,7 @@ interface Message {
     content: string;
     attachments?: any[];
     thinking?: string[]; // New: Thinking steps from the agent
+    metadata?: any; // New: LLM & Judge Metadata
     id?: number; // New: ID for streaming updates
 }
 
@@ -139,6 +140,10 @@ const ChatArea = ({ isSidebarOpen, toggleSidebar, sessionId, setSessionId }: Cha
                                     }
                                     return msg;
                                 }));
+                            } else if (data.type === 'metadata') {
+                                setMessages(prev => prev.map(msg =>
+                                    msg.id === aiMsgId ? { ...msg, metadata: data.content } : msg
+                                ));
                             } else if (data.type === 'token') {
                                 setMessages(prev => prev.map(msg =>
                                     msg.id === aiMsgId ? { ...msg, content: msg.content + data.content } : msg

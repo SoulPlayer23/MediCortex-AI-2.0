@@ -15,16 +15,19 @@ The system is built on a **Centralized Orchestration Architecture** with strict 
 -   **Agent Card Discovery**: `GET /.well-known/agent-cards` exposes all registered agent cards for A2A discovery.
 -   **Privacy Manager**: Uses Microsoft Presidio to redact PII (PHI) before routing to agents. Real identifiers are restored only at the final `node_restore_privacy` step — never exposed to external LLMs (GPT).
 -   **Router**: Intelligently routes user queries to specialized agents (capped at 3 concurrent agents per request via A2A §4.1 circuit breaker).
+- **SSE Streaming**: `/chat/stream` endpoint streams agent thoughts and response tokens in real-time. Uses a global `ACTIVE_STREAMS` registry keyed by `session_id` to bypass LangGraph state deep-copy isolation, ensuring thoughts emitted from deep within the ReAct loop reach the client immediately.
+- **Pydantic Aliasing**: Uses `message_metadata` alias in schemas to prevent collision with SQLAlchemy's internal `MetaData` registry when retrieving chat history.
 - **Model-as-Judge Evaluator**: A `node_reviewer` (A2A §5.2) powered by Groq (`llama-3.3-70b-versatile`) that scores responses 1-5 to prevent hallucinations/danger.
--   **Fail-Open Logic**: If evaluation fails (e.g., rate limits), the node fails open to ensure system availability.
--   **Cost Optimization**: Truncates response to 500 tokens before evaluation to respect Groq free tier TPD (Tokens Per Day) limits.
--   **Disclaimers**: Appends clinical disclaimers for low-quality responses (< 3/5), including the judge's score and specific rationale.
--   **SSE Streaming**: `/chat/stream` endpoint streams agent thoughts and response tokens to the frontend in real-time via Server-Sent Events.
+- **Fail-Open Logic**: If evaluation fails (e.g., rate limits), the node fails open to ensure system availability.
+- **Cost Optimization**: Truncates response to 500 tokens before evaluation to respect Groq free tier TPD (Tokens Per Day) limits.
+- **Disclaimers**: Appends clinical disclaimers for low-quality responses (< 3/5), including the judge's score and specific rationale.
+- **SSE Streaming**: `/chat/stream` endpoint streams agent thoughts and response tokens to the frontend in real-time via Server-Sent Events.
 
 ### 2. Specialized Agents (`specialized_agents/`)
 All agents adhere to the **A2A Protocol**, taking an `Envelope` input and returning an `AgentResponse`. 
 -   **Idempotency Cache**: Built-in 24-hour response caching (Redis-backed, memory fallback) using the Envelope's `idempotency_key` (A2A §4.2).
--   **LLM Fallback**: MedGemma-powered agents automatically fall back to OpenAI **GPT-4o-mini** if the local inference server is unreachable (currently silent/transparent to the user).
+-   **LLM Fallback**: MedGemma-powered agents fall back to OpenAI **GPT-4o-mini** if the local inference server times out (60s) or returns an error.
+-   **Robust ReAct Parsing**: Enhanced regex-based parsing in `base.py` to handle varied LLM output formats while strictly extracting `Thought`, `Action`, `Action Input`, and `Final Answer`.
 -   Each agent publishes an `AgentCard` (name, input/output schema, capabilities, version).
 
 -   **Report Agent** (`v2.0.0`): Extracts text from PDF reports and analyzes medical images (X-ray, MRI, CT) via MedGemma vision. Uses 3 specialized tools: document extraction → image extraction → clinical analysis.
@@ -38,6 +41,7 @@ The system exposes its capabilities via the **Model Context Protocol (MCP)**, al
 -   **MCP Server**: `tools/mcp_server.py` — 13 tools + Agent Card Resources + 3 Standardized Prompts.
 -   **MCP Resources**: Agent cards exposed via `agents://medicortex/{name}/card` URI scheme (MCP §3.1).
 -   **MCP Prompts**: Exposes Agentic RAG workflows (`patient-full-review`, `drug-safety-check`, `medical-report-analysis`) directing external models to use tools correctly without hallucinating (MCP §3.2).
+-   **Tool Caching**: External API tools (PubMed, Web Crawlers) use a `@redis_cache` decorator (`utils/cache_utils.py`) backed by Redis to cache tool execution results for 24 hours (TTL 86400), reducing latency and API costs.
 -   **Tools** (grouped by agent):
 
     **PubMed & Web Research**
