@@ -152,4 +152,3 @@ def mock_medical_page_html():
 def _set_test_env(monkeypatch):
     """Set environment variables for testing."""
     monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-real")
-    monkeypatch.setenv("DATABASE_URL", "sqlite+aiosqlite:///test.db")

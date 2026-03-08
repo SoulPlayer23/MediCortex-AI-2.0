@@ -47,6 +47,36 @@ class TestExtractDocumentText:
         assert "Extracted Document" in result
         assert "Hemoglobin" in result
 
+    def test_corrupt_pdf_cleans_up_temp_file(self):
+        """Verify temp file is deleted even when pymupdf4llm raises on a corrupt PDF."""
+        import os
+        from tools.document_extraction_tools import extract_document_text
+
+        mock_resp = MagicMock()
+        mock_resp.headers = {"content-type": "application/pdf"}
+        mock_resp.content = b"%PDF-corrupt"
+        mock_resp.raise_for_status = MagicMock()
+
+        mock_client = MagicMock()
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client.get = MagicMock(return_value=mock_resp)
+
+        created_paths = []
+        real_to_markdown = None
+
+        def tracking_to_markdown(path):
+            created_paths.append(path)
+            raise RuntimeError("Corrupt PDF")
+
+        with patch("tools.document_extraction_tools.httpx.Client", return_value=mock_client):
+            with patch("tools.document_extraction_tools.pymupdf4llm.to_markdown", side_effect=tracking_to_markdown):
+                result = extract_document_text.invoke({"file_url": "https://example.com/corrupt.pdf"})
+
+        assert "Error" in result
+        for path in created_paths:
+            assert not os.path.exists(path), f"Temp file was not cleaned up: {path}"
+
     def test_timeout(self):
         from tools.document_extraction_tools import extract_document_text
         import httpx as _httpx

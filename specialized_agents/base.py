@@ -146,9 +146,13 @@ New input: {{input}}
             # Build tool_context from payload fields that tools may need.
             # pii_mapping_json is injected here so patient tools can resolve
             # redacted placeholders without real names ever appearing in the LLM prompt.
+            # knowledge_context is injected so analyze_symptoms can pass graph context
+            # to its internal MedGemma call without the LLM needing to format JSON.
             tool_context: Dict[str, Any] = {}
             if pii_json := envelope.payload.get("pii_mapping_json"):
                 tool_context["pii_mapping_json"] = pii_json
+            if kc := envelope.payload.get("knowledge_context"):
+                tool_context["knowledge_context"] = kc
 
             output, thinking_steps = self._execute_rect_loop(user_input, live_thoughts_queue, tool_context)
             

@@ -86,3 +86,67 @@ class TestAnalyzePatientHistory:
         from tools.patient_history_analyzer_tools import analyze_patient_history
         result = analyze_patient_history.invoke({"patient_record": ""})
         assert "Error" in result or "No" in result
+
+
+class TestAnalyzePatientVitals:
+    """Tests for analyze_patient_vitals tool."""
+
+    _RECORD = """
+    Patient: <PERSON_1>, Age: 45, Sex: Male
+    Diagnoses: Type 2 Diabetes (Active), Hypertension (Active)
+    Vitals (2026-01-28): BP 138/88 mmHg, HR 76 bpm, Temp 98.6°F, SpO2 97%, Weight 92kg, BMI 28.4
+    Vitals (2025-10-15): BP 142/92 mmHg, HR 80 bpm, SpO2 96%, Weight 94kg, BMI 29.0
+    """
+
+    def test_vitals_analysis_with_record(self):
+        from tools.patient_vitals_tools import analyze_patient_vitals
+        with patch("tools.patient_vitals_tools.llm") as mock_llm:
+            mock_llm.invoke.return_value = "**Current Vitals Summary**: BP 138/88 — ⚠️ Stage 1 HTN"
+            result = analyze_patient_vitals.invoke({"patient_record": self._RECORD})
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+    def test_vitals_empty_record(self):
+        from tools.patient_vitals_tools import analyze_patient_vitals
+        result = analyze_patient_vitals.invoke({"patient_record": ""})
+        assert "Error" in result
+
+    def test_vitals_no_pii_in_output(self):
+        """Real patient name must never appear in vitals output."""
+        from tools.patient_vitals_tools import analyze_patient_vitals
+        with patch("tools.patient_vitals_tools.llm") as mock_llm:
+            mock_llm.invoke.return_value = "BP 138/88 mmHg — Stage 1 HTN. Patient <PERSON_1> shows worsening trend."
+            result = analyze_patient_vitals.invoke({"patient_record": self._RECORD})
+        assert "John Smith" not in result
+
+
+class TestReviewPatientMedications:
+    """Tests for review_patient_medications tool."""
+
+    _RECORD = """
+    Patient: <PERSON_1>, Age: 45, Sex: Male
+    Allergies: Penicillin, Sulfa drugs
+    Diagnoses: Type 2 Diabetes (Active), Hypertension (Active), Hyperlipidemia (Managed)
+    Medications: Metformin 500mg twice daily, Lisinopril 10mg once daily, Atorvastatin 20mg once daily
+    """
+
+    def test_medication_review_with_record(self):
+        from tools.patient_medication_review_tools import review_patient_medications
+        with patch("tools.patient_medication_review_tools.llm") as mock_llm:
+            mock_llm.invoke.return_value = "**Allergy Safety Check**: ✅ SAFE — No conflicts detected."
+            result = review_patient_medications.invoke({"patient_record": self._RECORD})
+        assert isinstance(result, str)
+        assert len(result) > 0
+
+    def test_medication_review_empty_record(self):
+        from tools.patient_medication_review_tools import review_patient_medications
+        result = review_patient_medications.invoke({"patient_record": ""})
+        assert "Error" in result
+
+    def test_medication_review_no_pii_in_output(self):
+        """Real patient name must never appear in medication review output."""
+        from tools.patient_medication_review_tools import review_patient_medications
+        with patch("tools.patient_medication_review_tools.llm") as mock_llm:
+            mock_llm.invoke.return_value = "Medication review for <PERSON_1>: All medications appropriate."
+            result = review_patient_medications.invoke({"patient_record": self._RECORD})
+        assert "John Smith" not in result

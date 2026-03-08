@@ -55,14 +55,16 @@ class TestSearchPubmed:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get = MagicMock(side_effect=mock_responses)
 
-        with patch("tools.pubmed_search_tools.httpx.Client", return_value=mock_client):
+        with patch("tools.pubmed_search_tools.httpx.Client", return_value=mock_client), \
+             patch("utils.cache_utils.redis_client", None):
             result = search_pubmed.invoke({
                 "query": "metformin diabetes",
                 "max_results": 2
             })
 
         assert "Metformin" in result
-        assert "Smith" in result or "Medical Journal" in result
+        assert "Smith" in result
+        assert "Medical Journal" in result
 
     def test_search_empty_query(self):
         from tools.pubmed_search_tools import search_pubmed
@@ -88,7 +90,8 @@ class TestCrawlMedicalArticles:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get = MagicMock(side_effect=mock_responses)
 
-        with patch("tools.medical_webcrawler_tools.httpx.Client", return_value=mock_client):
+        with patch("tools.medical_webcrawler_tools.httpx.Client", return_value=mock_client), \
+             patch("utils.cache_utils.redis_client", None):
             result = crawl_medical_articles.invoke({
                 "query": "diabetes treatment",
                 "max_results": 2

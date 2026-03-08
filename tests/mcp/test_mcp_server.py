@@ -105,4 +105,4 @@ class TestMCPResources:
         # Each agent should have a card resource
         uri_strings = [str(u) for u in uris]
         assert any("pubmed" in u for u in uri_strings)
-        assert any("drug" in u for u in uri_strings)
+        assert any("pharmacology" in u for u in uri_strings)

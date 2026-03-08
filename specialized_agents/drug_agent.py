@@ -5,7 +5,7 @@ from tools.drug_recommendation_tools import recommend_drugs
 
 # ── Agent Card (A2A §1.1) ───────────────────────────────────────────
 drug_card = AgentCard(
-    name="drug_interaction",
+    name="pharmacology",
     description=(
         "Specialized Pharmacology Agent. Checks drug-drug interactions, identifying "
         "contraindications and adverse effects using trusted medical sources. Provides "
@@ -101,7 +101,7 @@ If no interaction is found, explicitly state: "No documented interactions found 
 
 # ── Agent Instance ───────────────────────────────────────────────────
 drug_agent = A2ABaseAgent(
-    name="drug_interaction",
+    name="pharmacology",
     llm=llm,
     tools=[check_drug_interactions, recommend_drugs],
     system_prompt=_SYSTEM_PROMPT,

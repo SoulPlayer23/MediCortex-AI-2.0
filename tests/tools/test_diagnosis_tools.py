@@ -26,6 +26,22 @@ class TestAnalyzeSymptoms:
             result = analyze_symptoms.invoke({"query": "", "knowledge_context": ""})
         assert isinstance(result, str)
 
+    def test_knowledge_context_injected_into_prompt(self):
+        """Verify knowledge_context is forwarded to the MedGemma prompt."""
+        from tools.symptom_analysis_tools import analyze_symptoms
+        captured = {}
+        def capture_invoke(prompt):
+            captured["prompt"] = prompt
+            return "Clinical Profile: fever with graph context."
+        with patch("tools.symptom_analysis_tools.llm") as mock_llm:
+            mock_llm.invoke.side_effect = capture_invoke
+            analyze_symptoms.invoke({
+                "query": "high fever",
+                "knowledge_context": "Fever is associated with Malaria (graph context)"
+            })
+        assert "Malaria" in captured["prompt"]
+        assert "graph context" in captured["prompt"]
+
 
 class TestCrawlDiagnosisArticles:
     """Tests for crawl_diagnosis_articles tool."""
@@ -44,7 +60,8 @@ class TestCrawlDiagnosisArticles:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get = MagicMock(side_effect=mock_responses)
 
-        with patch("tools.diagnosis_webcrawler_tools.httpx.Client", return_value=mock_client):
+        with patch("tools.diagnosis_webcrawler_tools.httpx.Client", return_value=mock_client), \
+             patch("utils.cache_utils.redis_client", None):
             result = crawl_diagnosis_articles.invoke({
                 "query": "diabetes differential diagnosis",
                 "max_results": 2
@@ -75,7 +92,8 @@ class TestCrawlDiagnosisArticles:
             return_value=MagicMock(text=mock_google_html, status_code=200, raise_for_status=MagicMock())
         )
 
-        with patch("tools.diagnosis_webcrawler_tools.httpx.Client", return_value=mock_client):
+        with patch("tools.diagnosis_webcrawler_tools.httpx.Client", return_value=mock_client), \
+             patch("utils.cache_utils.redis_client", None):
             result = crawl_diagnosis_articles.invoke({
                 "query": "headache",
                 "max_results": 50  # should be capped to 10

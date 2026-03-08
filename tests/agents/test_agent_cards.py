@@ -15,7 +15,7 @@ class TestAgentCards:
 
     def test_all_agents_registered(self, all_agents):
         """All 5 expected agents are in the registry."""
-        expected = {"pubmed", "diagnosis", "report", "patient", "drug"}
+        expected = {"pubmed", "diagnosis", "report_analyzer", "patient", "pharmacology"}
         assert expected == set(all_agents.keys())
 
     def test_cards_have_name(self, all_agents):

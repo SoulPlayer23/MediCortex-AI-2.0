@@ -21,7 +21,7 @@ class TestRouteDecision:
     def test_caps_agents(self):
         from orchestrator import route_decision, MAX_CONCURRENT_AGENTS
         state = {
-            "messages": [AIMessage(content="['pubmed', 'diagnosis', 'drug', 'patient', 'report']")]
+            "messages": [AIMessage(content="['pubmed', 'diagnosis', 'pharmacology', 'patient', 'report_analyzer']")]
         }
         routes = route_decision(state)
         assert len(routes) <= MAX_CONCURRENT_AGENTS
@@ -42,18 +42,18 @@ class TestRouteDecision:
 
     def test_single_agent(self):
         from orchestrator import route_decision
-        state = {"messages": [AIMessage(content="['drug']")]}
+        state = {"messages": [AIMessage(content="['pharmacology']")]}
         routes = route_decision(state)
-        assert routes == ["drug"]
+        assert routes == ["pharmacology"]
 
 
 class TestNodeRouter:
     """Tests for node_router — requires mocking the LLM."""
 
-    def test_drug_query_routes_to_drug(self):
+    def test_pharmacology_query_routes_to_pharmacology(self):
         from orchestrator import node_router
         mock_llm = MagicMock()
-        mock_llm.invoke.return_value = MagicMock(content='["drug"]')
+        mock_llm.invoke.return_value = MagicMock(content='["pharmacology"]')
 
         with patch("orchestrator.llm", mock_llm):
             state = {
@@ -61,7 +61,7 @@ class TestNodeRouter:
                 "messages": [],
             }
             result = node_router(state)
-        assert "drug" in result["messages"][0].content
+        assert "pharmacology" in result["messages"][0].content
 
     def test_fallback_on_error(self):
         from orchestrator import node_router

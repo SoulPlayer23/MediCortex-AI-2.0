@@ -9,5 +9,5 @@ AGENT_REGISTRY = {
     "diagnosis": diagnosis_agent,
     "report_analyzer": report_agent,
     "patient": patient_agent,
-    "drug": drug_agent
+    "pharmacology": drug_agent
 }

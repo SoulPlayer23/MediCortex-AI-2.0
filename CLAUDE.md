@@ -60,7 +60,7 @@ Every `/chat/stream` or `/chat` request traverses this LangGraph graph in `orche
 node_analyze_privacy      (Presidio redacts 8 PII entity types → placeholders; file_urls extracted from attachments)
     → node_retrieve_knowledge   (GPT-4o-mini extracts entity, queries knowledge graph; gracefully skipped if ArangoDB offline)
     → node_router               (GPT-4o-mini selects agents; route_decision always adds report_analyzer if file_urls present)
-    → [pubmed | diagnosis | report_analyzer | patient | drug]   (parallel or single, ≤3)
+    → [pubmed | diagnosis | report_analyzer | patient | pharmacology]   (parallel or single, ≤3)
     → node_aggregator           (GPT-4o-mini formats Markdown)
     → node_reviewer             (Groq llama-3.3-70b-versatile scores 1–5; appends disclaimer if < 3)
     → node_restore_privacy      (replaces <PERSON_1> placeholders with real names)
@@ -96,12 +96,12 @@ Each agent in `specialized_agents/` extends `A2ABaseAgent` and is registered in 
 | `diagnosis` | `diagnosis_agent.py` | `symptom_analysis_tools`, `diagnosis_webcrawler_tools` |
 | `report_analyzer` | `report_agent.py` | `document_extraction_tools`, `image_extraction_tools`, `report_analysis_tools` |
 | `patient` | `patient_agent.py` | `patient_retriever_tools`, `patient_history_analyzer_tools`, `patient_vitals_tools`, `patient_medication_review_tools` |
-| `drug` | `drug_agent.py` | `drug_interaction_tools`, `drug_recommendation_tools` |
+| `pharmacology` | `drug_agent.py` | `drug_interaction_tools`, `drug_recommendation_tools` |
 
 ### LLM Stack
 
 - **Router / Aggregator / Knowledge Refinement**: `gpt-4o-mini` via `langchain-openai`
-- **Specialized Agents (default)**: MedGemma hosted at `http://100.107.2.102:8000/predict` (homeserver via Tailscale VPN — may be offline). Falls back to `gpt-4o-mini` automatically on connection failure. See `specialized_agents/medgemma_llm.py`.
+- **Specialized Agents (default)**: MedGemma hosted locally at `http://100.107.2.102:8000/predict` (homeserver via Tailscale VPN — may be offline). URL is configured via `MEDGEMMA_API_URL` in `config.py`. Falls back to `gpt-4o-mini` automatically on connection failure. See `specialized_agents/medgemma_llm.py`.
 - **Model-as-Judge**: Groq `llama-3.3-70b-versatile` (fallback: `llama-3.1-8b-instant`). Controlled by `JUDGE_ENABLED`, `JUDGE_SAMPLE_RATE`, `JUDGE_MAX_INPUT_TOKENS` in `config.py`.
 
 ### Tool Caching
@@ -110,7 +110,7 @@ External API tools (PubMed, web crawlers) use the `@redis_cache` decorator from 
 
 ### Data Layer
 
-- **PostgreSQL** (async via `asyncpg` + SQLAlchemy): `chat_sessions` + `chat_messages`. The `chat_messages` table has `thinking JSONB` (agent ReAct steps) and `message_metadata JSONB` (judge score, model used). Schema source of truth is `database/schema.sql`.
+- **PostgreSQL** (async via `asyncpg` + SQLAlchemy): `chat_sessions` + `chat_messages`. The `chat_messages` table has `thinking JSONB` (agent ReAct steps) and `message_metadata JSONB` (judge score, model used). Schema source of truth is `database/schema.sql`. A `patients` table is planned (see `Todo.md`) to replace the current simulated in-memory store in `tools/patient_retriever_tools.py`.
 - **MinIO**: Object storage for uploaded PDFs/images. `MINIO_URL` must be a full URL (e.g. `http://localhost:9000`). Accessed via `services/minio_service.py` which reads all config from `settings`.
 - **Schema note**: The Pydantic schema alias `message_metadata` avoids collision with SQLAlchemy's internal `MetaData` registry.
 
@@ -133,6 +133,7 @@ External API tools (PubMed, web crawlers) use the `@redis_cache` decorator from 
 - PII is **never** injected into `enhanced_input` (the text sent to any LLM). It travels only inside `Envelope.payload["pii_mapping_json"]`.
 - `tool_context` in `_execute_rect_loop` is the only approved mechanism to pass sensitive data to tools without exposing it to the model.
 - When adding a new tool that requires PII resolution, add its parameter name to the `tool_context` dict in `base.py:process()`.
+- The patient agent system prompt must instruct the LLM to pass **only** the redacted placeholder to `retrieve_patient_records` — never to extract or forward `pii_mapping_json` itself. `pii_mapping_json` is injected silently at call time via `tool_context`.
 
 ### MCP Standards (from `skills/MCP.md`)
 - Tool `description` fields are prompt instructions — keep them precise and instructional.

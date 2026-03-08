@@ -16,10 +16,9 @@ import requests
 import structlog
 from langchain_core.tools import tool
 
-logger = structlog.get_logger("ImageExtractionTool")
+from config import settings
 
-# MedGemma API endpoint (same as medgemma_llm.py)
-MEDGEMMA_API_URL = "http://100.107.2.102:8000/predict"
+logger = structlog.get_logger("ImageExtractionTool")
 
 # Supported image extensions
 _IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".bmp", ".tiff", ".tif", ".webp")
@@ -93,7 +92,7 @@ def extract_image_findings(file_url: str, clinical_context: str = "") -> str:
             "max_tokens": 512
         }
 
-        response = requests.post(MEDGEMMA_API_URL, json=payload, timeout=120)
+        response = requests.post(settings.MEDGEMMA_API_URL, json=payload, timeout=120)
         response.raise_for_status()
         result = response.json()
         findings = result.get("response", "")

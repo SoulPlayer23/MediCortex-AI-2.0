@@ -68,11 +68,12 @@ def extract_document_text(file_url: str) -> str:
                 tmp.write(resp.content)
                 tmp_path = tmp.name
 
-            logger.info("document_extraction_converting", path=tmp_path)
-            md_text = pymupdf4llm.to_markdown(tmp_path)
-
-            # Cleanup
-            os.remove(tmp_path)
+            try:
+                logger.info("document_extraction_converting", path=tmp_path)
+                md_text = pymupdf4llm.to_markdown(tmp_path)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
 
             if not md_text or len(md_text.strip()) < 10:
                 return "Warning: PDF extracted but contains very little text. It may be a scanned document — try the image extraction tool instead."

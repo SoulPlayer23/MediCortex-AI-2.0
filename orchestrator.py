@@ -131,6 +131,8 @@ class AgentState(TypedDict):
     agent_thoughts: Annotated[List[str], operator.add] # New: Capture thinking steps
     final_output: str
     judge_score: Optional[int]            # A2A §5.2 — set by node_reviewer
+    judge_reason: Optional[str]
+    judge_confidence: Optional[str]
     error: Optional[str]
     trace_id: Optional[str]
     session_id: Optional[str]
@@ -251,7 +253,6 @@ def node_retrieve_knowledge(state: AgentState):
 
     return {
         "context": [graph_context],
-        "messages": state["messages"] 
     }
 
 def node_router(state: AgentState):
@@ -265,7 +266,7 @@ def node_router(state: AgentState):
         "'diagnosis' — Use when the user describes symptoms, asks about a disease's symptoms, asks what disease they might have, "
         "asks for treatment options for a specific disease/condition, or asks for a differential diagnosis. "
         "EXAMPLES: 'symptoms of diabetes', 'what causes chest pain', 'treatment for hypertension', 'I have a headache and fever'.\n\n"
-        "'drug' — Use ONLY when the user explicitly asks about a specific medication by name, asks about drug interactions, "
+        "'pharmacology' — Use ONLY when the user explicitly asks about a specific medication by name, asks about drug interactions, "
         "dosage, contraindications, or alternatives for a drug. "
         "EXAMPLES: 'interactions of Metformin and Lisinopril', 'dosage for Ibuprofen', 'alternatives to Atorvastatin'.\n\n"
         "'pubmed' — Use when the user asks for research papers, clinical studies, literature reviews, or recent evidence on a topic. "
@@ -276,10 +277,10 @@ def node_router(state: AgentState):
         "EXAMPLES: 'show me John's records', 'what medications is patient PT-10042 on'.\n\n"
         "═══ CRITICAL RULES ═══\n"
         "- A query about symptoms OR treatment of a disease → ['diagnosis'] only\n"
-        "- A query about a named drug → ['drug'] only\n"
+        "- A query about a named drug → ['pharmacology'] only\n"
         "- A query about research/literature → ['pubmed'] only\n"
         "- Only combine agents when the query EXPLICITLY spans two domains (e.g., 'symptoms AND drug interactions for diabetes').\n"
-        "- NEVER route to 'drug' for a pure symptoms/treatment query.\n"
+        "- NEVER route to 'pharmacology' for a pure symptoms/treatment query.\n"
         "- NEVER route to 'pubmed' unless research papers are explicitly requested.\n\n"
         "Return ONLY a JSON array of agent keys. Examples: ['diagnosis'] or ['drug'] or ['diagnosis', 'drug'].\n"
         "Do NOT add any explanation. Only output the JSON array."
@@ -338,6 +339,11 @@ def make_agent_node(agent_key: str):
                 import json as _json
                 envelope.payload["pii_mapping_json"] = _json.dumps(state.get("pii_mapping", {}))
 
+            # Diagnosis: pass knowledge core context so analyze_symptoms tool can
+            # inject it into its internal MedGemma call via tool_context injection.
+            if agent_key == "diagnosis":
+                envelope.payload["knowledge_context"] = context_str
+
             # Bind live thoughts list so the agent can stream thoughts in real-time
             session_id_str = state.get("session_id", "default")
             live_thoughts = ACTIVE_STREAMS.get(session_id_str, [])
@@ -375,7 +381,7 @@ node_pubmed = make_agent_node("pubmed")
 node_diagnosis = make_agent_node("diagnosis")
 node_report_analyzer = make_agent_node("report_analyzer")
 node_patient = make_agent_node("patient")
-node_drug = make_agent_node("drug")
+node_pharmacology = make_agent_node("pharmacology")
 
 def node_aggregator(state: AgentState):
     logger.info("NODE: AGGREGATOR")
@@ -538,7 +544,7 @@ workflow.add_node("pubmed", node_pubmed)
 workflow.add_node("diagnosis", node_diagnosis)
 workflow.add_node("report_analyzer", node_report_analyzer)
 workflow.add_node("patient", node_patient)
-workflow.add_node("drug", node_drug)
+workflow.add_node("pharmacology", node_pharmacology)
 workflow.add_node("aggregator", node_aggregator)
 workflow.add_node("reviewer", node_reviewer)       # A2A §5.2 — Model-as-Judge
 workflow.add_node("restore_privacy", node_restore_privacy)
@@ -742,6 +748,7 @@ async def chat_endpoint(request: ChatRequest, db: AsyncSession = Depends(get_db)
             "history": history_context,
             "agent_thoughts": [],
             "file_urls": file_urls,
+            "session_id": str(session_id),
         })
         response_text = result.get("final_output")
         agent_thinking = result.get("agent_thoughts", [])

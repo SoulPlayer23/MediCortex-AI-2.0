@@ -63,8 +63,10 @@ def _parse_articles(xml_text: str) -> list[dict]:
         for author in art.findall(".//AuthorList/Author"):
             last = author.find("LastName")
             fore = author.find("ForeName")
-            if last is not None and fore is not None:
-                authors_raw.append(f"{last.text} {fore.text}")
+            initials = author.find("Initials")
+            if last is not None:
+                suffix = fore.text if fore is not None else (initials.text if initials is not None else "")
+                authors_raw.append(f"{last.text} {suffix}".strip())
         if len(authors_raw) > 3:
             authors_str = ", ".join(authors_raw[:3]) + " et al."
         else:

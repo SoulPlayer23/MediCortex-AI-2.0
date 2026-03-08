@@ -30,7 +30,8 @@ class TestCheckDrugInteractions:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get = MagicMock(side_effect=mock_http_responses)
 
-        with patch("tools.drug_interaction_tools.httpx.Client", return_value=mock_client):
+        with patch("tools.drug_interaction_tools.httpx.Client", return_value=mock_client), \
+             patch("utils.cache_utils.redis_client", None):
             result = check_drug_interactions.invoke({
                 "medications": "Metformin, Lisinopril",
                 "patient_conditions": ""
@@ -55,7 +56,8 @@ class TestCheckDrugInteractions:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client.get = MagicMock(side_effect=mock_http_responses)
 
-        with patch("tools.drug_interaction_tools.httpx.Client", return_value=mock_client):
+        with patch("tools.drug_interaction_tools.httpx.Client", return_value=mock_client), \
+             patch("utils.cache_utils.redis_client", None):
             result = check_drug_interactions.invoke({
                 "medications": "Ibuprofen",
                 "patient_conditions": "kidney disease"
@@ -97,7 +99,8 @@ class TestRecommendDrugs:
 
     def test_recommendation_query(self, mock_http):
         from tools.drug_recommendation_tools import recommend_drugs
-        with patch("tools.drug_recommendation_tools.httpx.Client", return_value=mock_http):
+        with patch("tools.drug_recommendation_tools.httpx.Client", return_value=mock_http), \
+             patch("utils.cache_utils.redis_client", None):
             result = recommend_drugs.invoke({
                 "condition": "Type 2 Diabetes",
                 "query_type": "recommendation",
@@ -108,7 +111,8 @@ class TestRecommendDrugs:
 
     def test_dosage_query(self, mock_http):
         from tools.drug_recommendation_tools import recommend_drugs
-        with patch("tools.drug_recommendation_tools.httpx.Client", return_value=mock_http):
+        with patch("tools.drug_recommendation_tools.httpx.Client", return_value=mock_http), \
+             patch("utils.cache_utils.redis_client", None):
             result = recommend_drugs.invoke({
                 "condition": "Amoxicillin",
                 "query_type": "dosage",
@@ -118,7 +122,8 @@ class TestRecommendDrugs:
 
     def test_alternatives_query(self, mock_http):
         from tools.drug_recommendation_tools import recommend_drugs
-        with patch("tools.drug_recommendation_tools.httpx.Client", return_value=mock_http):
+        with patch("tools.drug_recommendation_tools.httpx.Client", return_value=mock_http), \
+             patch("utils.cache_utils.redis_client", None):
             result = recommend_drugs.invoke({
                 "condition": "Atorvastatin",
                 "query_type": "alternatives",

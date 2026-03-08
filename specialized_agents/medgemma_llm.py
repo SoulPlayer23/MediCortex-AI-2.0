@@ -15,7 +15,7 @@ class MedGemmaLLM(LLM):
     Falls back to OpenAI GPT-4o-mini when the local server is unreachable.
     """
 
-    api_url: str = Field(default="http://100.107.2.102:8000/predict")
+    api_url: str = Field(default_factory=lambda: settings.MEDGEMMA_API_URL)
     max_tokens: int = Field(default=1024)  # Bumped for fuller clinical responses
     temperature: float = Field(default=0.0)
     timeout: int = Field(default=120)  # MedGemma inference takes ~17s; allow headroom
@@ -42,7 +42,7 @@ class MedGemmaLLM(LLM):
         }
 
         try:
-            response = requests.post(self.api_url, json=payload, timeout=60)
+            response = requests.post(self.api_url, json=payload, timeout=self.timeout)
             response.raise_for_status()
             text_output = response.json().get("response", "")
 
@@ -59,7 +59,6 @@ class MedGemmaLLM(LLM):
 
             try:
                 from langchain_openai import ChatOpenAI
-                from langchain_core.messages import HumanMessage
                 from langchain_core.messages import HumanMessage, SystemMessage
 
                 fallback = ChatOpenAI(

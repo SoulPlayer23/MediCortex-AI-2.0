@@ -85,8 +85,8 @@ the appropriate analysis tools based on the query:
 DECISION RULES:
 1. ALWAYS start with `retrieve_patient_records` to get the patient's data.
    - Pass the patient identifier EXACTLY as it appears in the query (e.g., '<PERSON_1>').
-   - The pii_mapping_json is provided automatically in the context — extract it from there
-     and pass it to the tool.
+   - The pii_mapping_json is injected automatically by the system — do NOT include it in
+     your Action Input. Only pass the redacted patient identifier.
 
 2. After retrieval, SELECT the appropriate analysis tool(s) based on the query:
    - "What conditions does X have?" → `analyze_patient_history`

@@ -95,7 +95,7 @@ class TestMakeAgentNode:
             "history": [],
             "trace_id": "t-001",
             "pii_mapping": {},
-        })
+        }, config={})
         assert "Error" in result["agent_outputs"][0]
 
     def test_patient_node_injects_pii(self):
@@ -117,7 +117,7 @@ class TestMakeAgentNode:
                 "history": [],
                 "trace_id": "t-002",
                 "pii_mapping": {"<PERSON_1>": "Jane Doe"},
-            })
+            }, config={})
 
         mock_agent.process.assert_called_once()
         call_args = mock_agent.process.call_args

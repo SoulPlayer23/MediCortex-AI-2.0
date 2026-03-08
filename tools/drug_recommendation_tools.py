@@ -88,8 +88,8 @@ def _extract_text_content(html: str, max_chars: int = 1500) -> str:
     )
     if not target: return ""
     
-    text = target.get_text(separator=" ", strip=True)
-    return re.sub(r"\s+", " ", text)[:max_chars] + "..."
+    text = re.sub(r"\s+", " ", target.get_text(separator=" ", strip=True))
+    return text[:max_chars] + ("..." if len(text) > max_chars else "")
 
 
 @tool
@@ -145,7 +145,7 @@ def recommend_drugs(condition: str, query_type: str = "recommendation", patient_
                 try:
                     page_resp = client.get(results[0]["url"], timeout=8.0)
                     results[0]["content"] = _extract_text_content(page_resp.text)
-                except:
+                except Exception:
                     pass
 
         # Format output
