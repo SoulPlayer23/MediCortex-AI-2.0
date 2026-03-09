@@ -101,7 +101,7 @@ Each agent in `specialized_agents/` extends `A2ABaseAgent` and is registered in 
 ### LLM Stack
 
 - **Router / Aggregator / Knowledge Refinement**: `gpt-4o-mini` via `langchain-openai`
-- **Specialized Agents (default)**: MedGemma hosted locally at `http://100.107.2.102:8000/predict` (homeserver via Tailscale VPN — may be offline). URL is configured via `MEDGEMMA_API_URL` in `config.py`. Falls back to `gpt-4o-mini` automatically on connection failure. See `specialized_agents/medgemma_llm.py`.
+- **Specialized Agents (default)**: MedGemma hosted locally at `http://100.107.2.102:8000/predict` (homeserver via Tailscale VPN — may be offline). URL is configured via `MEDGEMMA_API_URL` in `config.py`. Falls back to `gpt-4o-mini` automatically on connection failure. See `specialized_agents/medgemma_llm.py`. Supports token streaming via `_stream()` which consumes the `/predict/stream` SSE endpoint; falls back to a single-chunk `_call()` if streaming fails.
 - **Model-as-Judge**: Groq `llama-3.3-70b-versatile` (fallback: `llama-3.1-8b-instant`). Controlled by `JUDGE_ENABLED`, `JUDGE_SAMPLE_RATE`, `JUDGE_MAX_INPUT_TOKENS` in `config.py`.
 
 ### Tool Caching
