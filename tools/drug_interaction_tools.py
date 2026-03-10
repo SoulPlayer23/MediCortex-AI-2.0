@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import httpx
 import structlog
 from bs4 import BeautifulSoup
+from ddgs import DDGS
 from langchain_core.tools import tool
 from utils.cache_utils import redis_cache
 
@@ -30,13 +31,9 @@ TRUSTED_PHARMA_DOMAINS = [
     "fda.gov",
     "drugbank.com",
     "medlineplus.gov",
-    "epocrates.com",
     "goodrx.com",
 ]
 
-GOOGLE_SEARCH_URL = "https://www.google.com/search"
-
-# Headers to mimic a normal browser request
 _HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
@@ -48,60 +45,57 @@ _HEADERS = {
 
 def _sanitize_query(query: str) -> str:
     """Sanitize user input to prevent injection in search queries."""
-    # Strip shell/SQL-like injection characters
-    sanitized = re.sub(r"[;|&`$\\\"']", "", query)
-    return sanitized[:500].strip()
+    return re.sub(r"[;|&`$\\\"']", "", query)[:500].strip()
 
 
-def _build_site_filter() -> str:
-    """Build a Google site: filter OR-chain for trusted domains."""
-    return " OR ".join(f"site:{d}" for d in TRUSTED_PHARMA_DOMAINS)
+def _is_trusted(url: str) -> bool:
+    """Return True if the URL belongs to a trusted pharmacology domain."""
+    domain = urlparse(url).netloc.replace("www.", "")
+    return any(domain == d or domain.endswith("." + d) for d in TRUSTED_PHARMA_DOMAINS)
 
 
-def _parse_google_results(html: str, max_results: int) -> list[dict]:
-    """Extract search result links, titles, and snippets from Google HTML."""
-    soup = BeautifulSoup(html, "lxml")
-    results: list[dict] = []
+def _search_ddg(query: str, max_results: int = 6) -> list[dict]:
+    """
+    Search DuckDuckGo and return structured results (title, url, snippet).
+    Filters to trusted pharmacology domains. Falls back to all domains if
+    the filtered set is empty (DDG may not surface trusted results for every query).
+    """
+    try:
+        with DDGS() as ddgs:
+            site_filter = " OR ".join(f"site:{d}" for d in TRUSTED_PHARMA_DOMAINS)
+            raw = list(ddgs.text(f"{query} ({site_filter})", max_results=max_results))
 
-    for g in soup.select("div.g, div[data-hveid]"):
-        anchor = g.find("a", href=True)
-        if not anchor:
-            continue
+        trusted = [
+            {"title": r["title"], "url": r["href"], "snippet": r["body"][:300],
+             "domain": urlparse(r["href"]).netloc.replace("www.", "")}
+            for r in raw if _is_trusted(r["href"])
+        ]
 
-        href = anchor["href"]
-        if not href.startswith("http") or "google.com" in href:
-            continue
+        # Fallback: no trusted results — use all DDG results for the base query
+        if not trusted:
+            logger.warning("drug_interaction_no_trusted_results", query=query)
+            with DDGS() as ddgs:
+                raw = list(ddgs.text(query, max_results=4))
+            trusted = [
+                {"title": r["title"], "url": r["href"], "snippet": r["body"][:300],
+                 "domain": urlparse(r["href"]).netloc.replace("www.", "")}
+                for r in raw
+            ]
 
-        title_el = g.find("h3")
-        title = title_el.get_text(strip=True) if title_el else "Untitled"
+        return trusted[:max_results]
 
-        snippet_el = g.find("div", class_="VwiC3b") or g.find("span", class_="aCOpRe")
-        snippet = snippet_el.get_text(strip=True) if snippet_el else ""
-
-        domain = urlparse(href).netloc.replace("www.", "")
-
-        results.append({
-            "title": title,
-            "url": href,
-            "domain": domain,
-            "snippet": snippet[:300],
-        })
-
-        if len(results) >= max_results:
-            break
-
-    return results
+    except Exception as e:
+        logger.error("ddg_search_error", error=str(e))
+        return []
 
 
 def _extract_interaction_content(html: str, max_chars: int = 1500) -> str:
     """Extract content focused on interactions and warnings."""
     soup = BeautifulSoup(html, "lxml")
 
-    # Remove noise
     for tag in soup.find_all(["script", "style", "nav", "footer", "header", "aside", "form"]):
         tag.decompose()
 
-    # Prioritize interaction/warning sections
     target = (
         soup.find("div", id=re.compile(r"(interaction|warning|contraindication)", re.I))
         or soup.find("section", id=re.compile(r"(interaction|warning|contraindication)", re.I))
@@ -113,22 +107,21 @@ def _extract_interaction_content(html: str, max_chars: int = 1500) -> str:
     if not target:
         return ""
 
-    text = target.get_text(separator=" ", strip=True)
-    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"\s+", " ", target.get_text(separator=" ", strip=True))
     return text[:max_chars] + ("..." if len(text) > max_chars else "")
 
 
 def _format_results(results: list[dict], query: str) -> str:
     """Format crawled results into readable markdown."""
     if not results:
-        return f"No interaction information found for '{query}' from trusted sources."
+        return f"No documented interactions found for '{query}' in trusted databases."
 
     lines = [f"## Drug Interaction Check: *{query}*\n"]
     for i, r in enumerate(results, 1):
         lines.append(f"### {i}. {r['title']}")
         lines.append(f"- **Source:** {r['domain']}")
         lines.append(f"- **URL:** {r['url']}")
-        if r["snippet"]:
+        if r.get("snippet"):
             lines.append(f"- **Summary:** {r['snippet']}")
         if r.get("content"):
             lines.append(f"- **Excerpt:** {r['content'][:500]}")
@@ -141,7 +134,7 @@ def _format_results(results: list[dict], query: str) -> str:
 @redis_cache(ttl=86400, prefix="medicortex:drug_interaction")
 def check_drug_interactions(medications: str, patient_conditions: str = "") -> str:
     """Check for drug-drug interactions, contraindications, and adverse effects.
-    
+
     Searches trusted pharmacology sources (Drugs.com, RxList, Medscape, etc.)
     for interactions between listed medications or between medications and
     patient conditions.
@@ -156,47 +149,33 @@ def check_drug_interactions(medications: str, patient_conditions: str = "") -> s
     """
     logger.info("drug_interaction_check_start", meds=medications, conditions=patient_conditions)
 
-    # Input sanitization
     meds = _sanitize_query(medications)
     conditions = _sanitize_query(patient_conditions)
-    
+
     if not meds:
         return "Error: No medications provided. Please list specific drugs to check."
 
-    # Construct search query
     query_parts = [meds, "interactions"]
     if conditions:
         query_parts.append(f"and {conditions} contraindications")
-    
     base_query = " ".join(query_parts)
 
+    results = _search_ddg(base_query, max_results=4)
+
+    if not results:
+        return f"No documented interactions found for '{base_query}' in trusted databases."
+
+    # Fetch page content for top 2 results
     try:
-        with httpx.Client(timeout=15.0, headers=_HEADERS, follow_redirects=True) as client:
-            site_filter = _build_site_filter()
-            search_query = f"{base_query} ({site_filter})"
-
-            resp = client.get(
-                GOOGLE_SEARCH_URL,
-                params={"q": search_query, "num": "6", "hl": "en"},
-            )
-            resp.raise_for_status()
-
-            results = _parse_google_results(resp.text, max_results=4)
-
-            if not results:
-                return f"No documented interactions found for '{base_query}' in trusted databases."
-
-            # Fetch content for top 2 results to get details
+        with httpx.Client(timeout=12.0, headers=_HEADERS, follow_redirects=True) as client:
             for r in results[:2]:
                 try:
                     page_resp = client.get(r["url"], timeout=8.0)
                     r["content"] = _extract_interaction_content(page_resp.text)
                 except Exception:
-                    r["content"] = "Content extraction failed."
-
-        logger.info("drug_interaction_check_complete", results=len(results))
-        return _format_results(results, base_query)
-
+                    r["content"] = ""
     except Exception as e:
-        logger.error("drug_interaction_error", error=str(e))
-        return f"Error checking interactions: {str(e)}"
+        logger.warning("drug_interaction_page_fetch_failed", error=str(e))
+
+    logger.info("drug_interaction_check_complete", results=len(results))
+    return _format_results(results, base_query)

@@ -20,6 +20,9 @@ env/
 credentials.json
 token.json
 
+# Knowledge Core — generated assets (large binary files, rebuild locally)
+knowledge_core/assets/
+
 # Antigravity templates
 directives/
 execution/

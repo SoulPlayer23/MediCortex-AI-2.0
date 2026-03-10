@@ -1,328 +1,331 @@
 import inspect
 import logging
-import re
-import uuid
-import json
 import redis
 from typing import List, Dict, Any, Optional, Tuple
 
 from langchain_core.tools import BaseTool
-from langchain_core.callbacks import BaseCallbackHandler
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_openai import ChatOpenAI
 
 from .medgemma_llm import MedGemmaLLM
 from .protocols import AgentCard, Envelope, AgentResponse
 from config import settings
 
 logger = logging.getLogger("SpecializedAgents")
+
+# MedGemma — used exclusively for clinical synthesis (Phase 2).
+# Tool orchestration is handled by GPT-4o-mini (Phase 1).
 llm = MedGemmaLLM()
 
-class AgentStreamingCallbackHandler(BaseCallbackHandler):
-    """Callback handler to intercept LLM tokens and route them to a streaming queue/list."""
-    def __init__(self, callback_list: list):
-        self.callback_list = callback_list
-
-    def on_llm_new_token(self, token: str, **kwargs: Any) -> Any:
-        # If we just want thoughts, token-by-token isn't strictly necessary for the thought accordion,
-        # but we can capture it here if we want to stream the raw ReAct text. We'll skip it for now and
-        # rely on the regex parser to emit complete thoughts.
-        pass
 
 class A2ABaseAgent:
     """
-    Base Agent implementing the A2A Protocol.
+    Base Agent implementing the A2A Protocol with a two-phase execution model:
+
+      Phase 1 — GPT-4o-mini (planner):
+        Decides which tools to call, calls them, collects observations.
+        Emits tool thoughts in real-time for SSE streaming.
+
+      Phase 2 — MedGemma (synthesizer):
+        Receives the original query + all gathered tool results.
+        Called exactly once to produce the final clinical response.
+
+    This cleanly separates agentic orchestration (GPT-4o-mini's strength) from
+    medical knowledge synthesis (MedGemma's strength), and eliminates the
+    token waste of making a 4B medical model reason about tool selection.
     """
-    def __init__(self, name: str, llm: MedGemmaLLM, tools: List[BaseTool], system_prompt: str, card: AgentCard, max_iterations: int = 3):
+
+    def __init__(
+        self,
+        name: str,
+        llm: MedGemmaLLM,
+        tools: List[BaseTool],
+        system_prompt: str,
+        card: AgentCard,
+        max_iterations: int = 3,
+    ):
         self.name = name
-        self.llm = llm
+        self.llm = llm              # MedGemma — synthesis only
         self.tools = {t.name: t for t in tools}
         self.system_prompt = system_prompt
         self.card = card
         self.max_iterations = max_iterations
-        
-        # Idempotency Cache: In-memory fallback
+
+        # Idempotency cache — Redis with in-memory fallback
         self._response_cache: Dict[str, AgentResponse] = {}
-        # Optional Redis Backing
         self._redis_cache = None
         try:
             if getattr(settings, "REDIS_URL", None):
                 self._redis_cache = redis.from_url(settings.REDIS_URL, decode_responses=True)
-                self._redis_cache.ping() # test connection
-                logger.info(f"[{self.name}] Connected to Redis Cache.")
+                self._redis_cache.ping()
+                logger.info(f"[{self.name}] Connected to Redis cache.")
         except Exception as e:
-            logger.warning(f"[{self.name}] Redis connection failed, falling back to in-memory cache: {e}")
+            logger.warning(f"[{self.name}] Redis unavailable, using in-memory cache: {e}")
             self._redis_cache = None
 
-        # Build prompt template
-        tool_desc = "\n".join([f"{t.name}: {t.description}" for t in tools])
-        tool_names = ", ".join([f"[{t.name}]" for t in tools])
-        
-        self.template = f"""You are the {name}.
-{system_prompt}
-
-IMPORTANT: You may receive a 'Conversation History' in your input. USE IT to maintain context (e.g., patient age, previous diagnosis). 
-Do not ask for information that has already been provided in the history.
-
-TOOLS:
-------
-You have access to the following tools:
-
-{tool_desc}
-
-To use a tool, please use the following format:
-
-```
-Thought: Do I need to use a tool? Yes
-Action: the action to take, should be one of {tool_names}
-Action Input: the input to the action
-Observation: the result of the action
-```
-
-When you have a response to say to the Human, or if you do not need to use a tool, you MUST use the format:
-
-```
-Thought: Do I need to use a tool? No
-Final Answer: [your response here]
-```
-
-Begin!
-
-New input: {{input}}
-{{agent_scratchpad}}
-"""
+    # ── Public API ────────────────────────────────────────────────────────────
 
     def get_card(self) -> AgentCard:
         return self.card
 
     def process(self, envelope: Envelope) -> AgentResponse:
-        """
-        Main entry point for A2A communication.
-        1. Validates Envelope
-        2. Validates Payload against Schema
-        3. Executes Logic
-        4. Returns AgentResponse
-        """
-        logger.info(f"[{self.name}] Received Envelope: {envelope.idempotency_key} from {envelope.sender_id}")
-        
-        # Schema Validation
-        # simplified check: ensure keys match
-        # in prod, use logic to validate payload against self.card.input_schema
-        
+        """Main A2A entry point. Validates the envelope, checks idempotency cache,
+        then runs the two-phase plan-and-synthesize pipeline."""
+        logger.info(f"[{self.name}] Envelope {envelope.idempotency_key} from {envelope.sender_id}")
+
         user_input = envelope.payload.get("input", "")
         if not user_input:
-             return AgentResponse(
+            return AgentResponse(
                 envelope_id=envelope.idempotency_key,
                 output=None,
-                error="Validation Error: 'input' field missing in payload."
+                error="Validation Error: 'input' field missing in payload.",
             )
 
-        # ── Idempotency Cache Check ──
+        # ── Idempotency cache check ───────────────────────────────────────────
         cache_key = f"medicortex:idempotency:{envelope.idempotency_key}"
-        
-        # 1. Check Redis
+
         if self._redis_cache:
             try:
                 cached_json = self._redis_cache.get(cache_key)
                 if cached_json:
-                    logger.info(f"[{self.name}] Cache HIT (Redis) for {envelope.idempotency_key}")
-                    import pydantic
-                    try: # Support pydantic v1 parse_raw and v2 model_validate_json
+                    logger.info(f"[{self.name}] Cache HIT (Redis)")
+                    try:
                         return AgentResponse.model_validate_json(cached_json)
                     except AttributeError:
                         return AgentResponse.parse_raw(cached_json)
             except Exception as e:
-                logger.warning(f"[{self.name}] Failed to retrieve from Redis: {e}")
-        
-        # 2. Check In-Memory (Fallback)
+                logger.warning(f"[{self.name}] Redis read failed: {e}")
+
         if envelope.idempotency_key in self._response_cache:
-            logger.info(f"[{self.name}] Cache HIT (In-Memory) for {envelope.idempotency_key}")
+            logger.info(f"[{self.name}] Cache HIT (in-memory)")
             return self._response_cache[envelope.idempotency_key]
-        
-        logger.info(f"[{self.name}] Cache MISS for {envelope.idempotency_key}. Executing logic...")
-        
-        # ── Execution ──
+
+        logger.info(f"[{self.name}] Cache MISS — executing pipeline.")
+
+        # ── Execute ───────────────────────────────────────────────────────────
         try:
             live_thoughts_queue = envelope.payload.get("live_thoughts_queue")
 
-            # Build tool_context from payload fields that tools may need.
-            # pii_mapping_json is injected here so patient tools can resolve
-            # redacted placeholders without real names ever appearing in the LLM prompt.
-            # knowledge_context is injected so analyze_symptoms can pass graph context
-            # to its internal MedGemma call without the LLM needing to format JSON.
+            # tool_context carries sensitive data that must never appear in any
+            # LLM prompt. _call_tool() injects matching keys at call time via
+            # inspect.signature, keeping PII out of both GPT-4o-mini and MedGemma.
             tool_context: Dict[str, Any] = {}
             if pii_json := envelope.payload.get("pii_mapping_json"):
                 tool_context["pii_mapping_json"] = pii_json
             if kc := envelope.payload.get("knowledge_context"):
                 tool_context["knowledge_context"] = kc
 
-            output, thinking_steps = self._execute_rect_loop(user_input, live_thoughts_queue, tool_context)
-            
+            output, thinking_steps = self._plan_and_synthesize(
+                user_input, live_thoughts_queue, tool_context
+            )
+
             response = AgentResponse(
                 envelope_id=envelope.idempotency_key,
                 output=output,
-                thinking=thinking_steps
+                thinking=thinking_steps,
             )
-            
-            # ── Cache Write ──
+
+            # Cache write
             if self._redis_cache:
                 try:
                     try:
                         resp_json = response.model_dump_json()
                     except AttributeError:
                         resp_json = response.json()
-                    # Cache for 24 hours
                     self._redis_cache.setex(cache_key, 86400, resp_json)
                 except Exception as e:
-                    logger.warning(f"[{self.name}] Failed to save to Redis: {e}")
+                    logger.warning(f"[{self.name}] Redis write failed: {e}")
             else:
                 self._response_cache[envelope.idempotency_key] = response
-                
+
             return response
-            
+
         except Exception as e:
-            logger.error(f"[{self.name}] Error processing request: {e}")
+            logger.error(f"[{self.name}] Pipeline error: {e}")
             return AgentResponse(
                 envelope_id=envelope.idempotency_key,
                 output=None,
-                error=str(e)
+                error=str(e),
             )
 
     def invoke(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Legacy invoke method for compatibility, wrappers around process()
-        """
-        # Create a dummy envelope if called directly
+        """Legacy compatibility shim — wraps process() with a dummy Envelope."""
         env = Envelope(
             sender_id="legacy_invoke",
             receiver_id=self.name,
-            payload=inputs
+            payload=inputs,
         )
         resp = self.process(env)
         if resp.error:
             raise Exception(resp.error)
         return {"output": resp.output, "thinking": resp.thinking}
 
-    def _execute_rect_loop(
+    # ── Private pipeline ──────────────────────────────────────────────────────
+
+    def _plan_and_synthesize(
         self,
         user_input: str,
         live_thoughts_queue: Optional[list] = None,
         tool_context: Optional[Dict[str, Any]] = None,
     ) -> Tuple[str, List[str]]:
-        scratchpad = ""
+        """
+        Two-phase pipeline:
+          Phase 1 — GPT-4o-mini gathers tool data (emits thoughts in real-time).
+          Phase 2 — MedGemma synthesizes the final clinical response (single call).
+        """
         thinking_steps: List[str] = []
         tool_context = tool_context or {}
-        
+
         def emit_thought(t: str):
             thinking_steps.append(t)
             if live_thoughts_queue is not None:
                 live_thoughts_queue.append(t)
 
-        for i in range(self.max_iterations):
-            # Construct Prompt
-            prompt = self.template.format(input=user_input, agent_scratchpad=scratchpad)
-            
-            # Force the model to start with Thought if it's the first iteration or scratchpad is empty
-            if not scratchpad.strip():
-                 prompt += "\nFormat your first string starting strictly with 'Thought:' or 'Final Answer:'"
-            
-            # Call LLM
-            step_msg = f"Thinking (Step {i+1})..."
-            logger.info(f"[{self.name}] {step_msg}")
-            
-            response = self.llm.invoke(prompt)
-            
-            # Clean response of potential markdown code blocks
-            clean_resp = response.replace("```json", "").replace("```", "").strip()
+        # Phase 1 — tool gathering
+        try:
+            tool_results = self._gather_tool_results(user_input, emit_thought, tool_context)
+        except Exception as e:
+            logger.error(f"[{self.name}] Tool gathering failed: {e}")
+            tool_results = []
+            emit_thought(
+                f"**[{self.name.title()}]**: Tool gathering failed — "
+                f"synthesizing from medical knowledge only."
+            )
 
-            # Robust ReAct parsing
-            thought_text = ""
-            action_text = ""
-            action_input_text = ""
-            final_answer_text = ""
+        # Phase 2 — MedGemma synthesis
+        emit_thought(f"**[{self.name.title()}]**: Synthesizing clinical response…")
+        try:
+            final_answer = self._synthesize(user_input, tool_results)
+        except Exception as e:
+            logger.error(f"[{self.name}] Synthesis failed: {e}")
+            final_answer = f"Error generating clinical response: {e}"
 
-            # Try to extract Thought
-            thought_match = re.search(r"Thought:\s*(.*?)(?=\nAction:|\nFinal Answer:|$)", clean_resp, re.DOTALL | re.IGNORECASE)
-            if thought_match:
-                thought_text = thought_match.group(1).strip()
-            elif "Thought:" in clean_resp and "Action:" not in clean_resp and "Final Answer:" not in clean_resp:
-                # The whole response might just be a thought
-                thought_text = clean_resp.replace("Thought:", "").strip()
+        return final_answer, thinking_steps
 
-            # Try to extract Action & Input
-            action_match = re.search(r"Action:\s*([^\n]+)", clean_resp, re.IGNORECASE)
-            input_match = re.search(r"Action Input:\s*(.*?)(?=\nObservation:|\nThought:|\nFinal Answer:|$)", clean_resp, re.DOTALL | re.IGNORECASE)
-            
-            if action_match:
-                action_text = action_match.group(1).strip()
-            if input_match:
-                action_input_text = input_match.group(1).strip()
+    def _gather_tool_results(
+        self,
+        user_input: str,
+        emit_thought,
+        tool_context: Dict[str, Any],
+    ) -> List[Tuple[str, str]]:
+        """
+        Phase 1: GPT-4o-mini decides which tools to call and in what order.
 
-            # Try to extract Final Answer
-            final_answer_match = re.search(r"Final Answer:\s*(.+)", clean_resp, re.DOTALL | re.IGNORECASE)
-            if final_answer_match:
-                final_answer_text = final_answer_match.group(1).strip()
+        Uses LangChain bind_tools() so tool schemas are generated automatically.
+        Loops up to self.max_iterations times to allow multi-tool pipelines
+        (e.g. patient agent: retrieve → history → vitals → medications).
 
-            # Emit thought
-            if thought_text:
-                emit_thought(f"**[{self.name.title()}]**: {thought_text}")
-            elif clean_resp:
-                # If no formal thought block was found but there is text, emit a chunk of it as a thought
-                snippet = clean_resp[:300] + "..." if len(clean_resp) > 300 else clean_resp
-                emit_thought(f"**[{self.name.title()}]**: {snippet}")
+        tool_context keys (pii_mapping_json, knowledge_context) are injected
+        at call time by _call_tool() and are never visible to GPT-4o-mini.
+        """
+        planner = ChatOpenAI(
+            model="gpt-4o-mini",
+            temperature=0,
+            api_key=settings.OPENAI_API_KEY,
+        )
+        planner_with_tools = planner.bind_tools(list(self.tools.values()))
 
-            if final_answer_text:
-                return final_answer_text, thinking_steps
-            
-            if action_text and action_input_text:
-                action = action_text
-                action_input = action_input_text
-                
-                # Check for brackets removal if model adds them
-                action = action.strip("[]")
-                
-                tool = self.tools.get(action)
-                observation_msg = ""
-                if tool:
-                    logger.info(f"[{self.name}] Calling Tool: {action} with '{action_input}'")
-                    action_thought = f"**Action**: Calling tool `{action}` with input `{action_input}`"
-                    emit_thought(action_thought)
-                    try:
-                        # Inject tool_context keys (e.g. pii_mapping_json) transparently
-                        # so the LLM never needs to pass them explicitly in Action Input.
-                        if tool_context:
-                            try:
-                                func = getattr(tool, "func", tool)
-                                params = list(inspect.signature(func).parameters.keys())
-                                injectable = {k: v for k, v in tool_context.items() if k in params[1:]}
-                            except (ValueError, TypeError):
-                                injectable = {}
-                            if injectable:
-                                first_param = params[0] if params else "__arg1"
-                                observation = tool.invoke({first_param: action_input, **injectable})
-                            else:
-                                observation = tool.invoke(action_input)
-                        else:
-                            observation = tool.invoke(action_input)
-                        observation_msg = f"Tool Output: {str(observation)[:200]}..."
-                    except Exception as e:
-                        observation = f"Error: {str(e)}"
-                        observation_msg = f"Tool Error: {str(e)}"
-                else:
-                    observation = f"Error: Tool '{action}' not found."
-                    observation_msg = f"Error: Tool '{action}' not found."
-                
-                obs_thought = f"**Observation**: {observation_msg}"
-                emit_thought(obs_thought)
+        messages = [
+            SystemMessage(content=(
+                f"You are a data-gathering orchestrator for the {self.name} medical agent. "
+                f"Your ONLY job is to call the available tools to collect all information "
+                f"needed to answer the user's medical query. "
+                f"Do NOT generate a final answer or explain your reasoning — "
+                f"only call tools. Stop when you have gathered sufficient data."
+            )),
+            HumanMessage(content=user_input),
+        ]
 
-                # Update scratchpad
-                scratchpad += f"{response}\nObservation: {observation}\n"
-                continue
-            
-            # Fallback
-            if "Thought:" not in response and "Action:" not in response and "Final Answer:" not in response:
-                 # If the model just outputs dialogue, treat it as a final answer to prevent infinite looping
-                 return response.strip(), thinking_steps
-            
-            # If stuck parsing Action
-            scratchpad += f"{response}\nObservation: Could not parse Action or Final Answer. Please stick EXACTLY to the requested format (Thought: -> Action: -> Action Input: OR Final Answer:).\n"
+        results: List[Tuple[str, str]] = []
 
-        return "Agent reached max iterations without final answer.", thinking_steps
+        for _ in range(self.max_iterations):
+            response = planner_with_tools.invoke(messages)
+            messages.append(response)
+
+            if not response.tool_calls:
+                # GPT-4o-mini decided no more tools needed
+                break
+
+            for tc in response.tool_calls:
+                tool_name = tc["name"]
+                args = tc["args"]
+
+                # Surface the tool call as a thought for the UI accordion
+                arg_summary = next(iter(args.values()), "") if args else ""
+                emit_thought(
+                    f"**[{self.name.title()}]**: Calling `{tool_name}` "
+                    f"with `{str(arg_summary)[:120]}`"
+                )
+                logger.info(f"[{self.name}] Tool call: {tool_name}({args})")
+
+                observation = self._call_tool(tool_name, args, tool_context)
+                results.append((tool_name, observation))
+
+                snippet = observation[:300] + "…" if len(observation) > 300 else observation
+                emit_thought(f"**Observation** (`{tool_name}`): {snippet}")
+
+                messages.append(ToolMessage(content=observation, tool_call_id=tc["id"]))
+
+        return results
+
+    def _call_tool(
+        self,
+        tool_name: str,
+        args: Dict[str, Any],
+        tool_context: Dict[str, Any],
+    ) -> str:
+        """
+        Execute a tool, transparently injecting tool_context keys that match
+        the tool's function signature (e.g. pii_mapping_json for patient tools).
+        Neither GPT-4o-mini nor MedGemma ever sees these injected values.
+        """
+        tool = self.tools.get(tool_name)
+        if not tool:
+            return f"Error: Tool '{tool_name}' not found. Available: {list(self.tools)}"
+
+        try:
+            merged_args = dict(args)
+            if tool_context:
+                func = getattr(tool, "func", tool)
+                try:
+                    sig_params = list(inspect.signature(func).parameters.keys())
+                    injectable = {k: v for k, v in tool_context.items() if k in sig_params}
+                except (ValueError, TypeError):
+                    injectable = {}
+                merged_args.update(injectable)
+
+            return str(tool.invoke(merged_args))
+
+        except Exception as e:
+            logger.warning(f"[{self.name}] Tool '{tool_name}' error: {e}")
+            return f"Error calling {tool_name}: {str(e)}"
+
+    def _synthesize(
+        self,
+        user_input: str,
+        tool_results: List[Tuple[str, str]],
+    ) -> str:
+        """
+        Phase 2: MedGemma is called exactly once with the original query and all
+        gathered tool data. It produces the final clinical response without any
+        awareness of tool orchestration — it only sees medical content.
+        """
+        if tool_results:
+            gathered = "\n\n".join(
+                f"[{name} results]\n{obs}" for name, obs in tool_results
+            )
+            prompt = (
+                f"{self.system_prompt}\n\n"
+                f"User Query: {user_input}\n\n"
+                f"Gathered Data:\n{gathered}\n\n"
+                f"Using the gathered data above, provide your complete clinical response:"
+            )
+        else:
+            # No tools were called — answer from medical knowledge alone
+            prompt = (
+                f"{self.system_prompt}\n\n"
+                f"User Query: {user_input}\n\n"
+                f"Provide your clinical response:"
+            )
+
+        return self.llm.invoke(prompt)

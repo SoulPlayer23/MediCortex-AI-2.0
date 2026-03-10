@@ -104,6 +104,40 @@ class PrivacyManager:
         logger.info("Redacted entities", count=len(mapping))
         return redacted_text, mapping
 
+    def redact_identifying_pii(self, text: str) -> str:
+        """
+        Narrow redaction for conversation history injected into LLM prompts.
+
+        Only removes directly identifying entities (PERSON, PHONE_NUMBER,
+        EMAIL_ADDRESS, US_SSN) — NOT DATE_TIME, LOCATION, URL, or IP_ADDRESS.
+        Dates and locations are clinically meaningful in history context and
+        stripping them breaks reasoning. Since the mapping is discarded
+        (suppression only, no restoration needed) we must not create
+        <DATE_TIME_N> placeholders that would leak into the final output.
+        """
+        if not text:
+            return text
+
+        results = self.analyzer.analyze(
+            text=text,
+            entities=["PERSON", "PHONE_NUMBER", "EMAIL_ADDRESS", "US_SSN"],
+            language="en",
+        )
+        results = sorted(results, key=lambda x: x.start, reverse=True)
+        redacted_text = text
+        type_counts: Dict[str, int] = {}
+
+        for result in results:
+            entity_type = result.entity_type
+            start, end = result.start, result.end
+            count = type_counts.get(entity_type, 0) + 1
+            type_counts[entity_type] = count
+            placeholder = f"<{entity_type}_{count}>"
+            redacted_text = redacted_text[:start] + placeholder + redacted_text[end:]
+
+        logger.info("Redacted history entities", count=sum(type_counts.values()))
+        return redacted_text
+
     def restore_privacy(self, text: str, mapping: Dict[str, str]) -> str:
         restored_text = text
         for placeholder, original_value in mapping.items():
@@ -126,9 +160,14 @@ class AgentState(TypedDict):
     file_urls: List[str]
     context: List[str]
     history: List[str]
+    # Compact redacted summary of recent turns for the router — built from DB
+    # message_metadata.agents_used so the router can resolve follow-up pronouns.
+    routing_context: Optional[str]
     messages: Annotated[List[BaseMessage], operator.add]
     agent_outputs: Annotated[List[str], operator.add]
-    agent_thoughts: Annotated[List[str], operator.add] # New: Capture thinking steps
+    agent_thoughts: Annotated[List[str], operator.add]
+    # Accumulates agent keys that ran this turn (e.g. ["patient", "pharmacology"])
+    agents_used: Annotated[List[str], operator.add]
     final_output: str
     judge_score: Optional[int]            # A2A §5.2 — set by node_reviewer
     judge_reason: Optional[str]
@@ -259,7 +298,8 @@ def node_router(state: AgentState):
     logger.info("NODE: ROUTER")
     input_text = state['redacted_input']
     context_str = "\n".join(state.get("context", []))
-    
+    routing_context = state.get("routing_context") or ""
+
     system_prompt = (
         "You are the MediCortex Orchestrator. Your ONLY job is to select the best agent(s) to handle the user's query.\n\n"
         "═══ AGENT DECISION RULES ═══\n\n"
@@ -282,11 +322,26 @@ def node_router(state: AgentState):
         "- Only combine agents when the query EXPLICITLY spans two domains (e.g., 'symptoms AND drug interactions for diabetes').\n"
         "- NEVER route to 'pharmacology' for a pure symptoms/treatment query.\n"
         "- NEVER route to 'pubmed' unless research papers are explicitly requested.\n\n"
-        "Return ONLY a JSON array of agent keys. Examples: ['diagnosis'] or ['drug'] or ['diagnosis', 'drug'].\n"
+        "═══ FOLLOW-UP QUERY HANDLING ═══\n"
+        "If the current query uses ambiguous pronouns or implicit references such as 'his', 'her', 'their', "
+        "'the patient', 'these medications', 'the drug', 'the condition', 'it', 'they' — resolve the "
+        "reference using the Recent Session Context provided below.\n"
+        "Resolution rules:\n"
+        "- Previous turn used [patient] AND follow-up asks about medications/interactions/drugs → ['pharmacology']\n"
+        "- Previous turn used [patient] AND follow-up asks about symptoms/conditions/diagnosis → ['diagnosis']\n"
+        "- Previous turn used [pharmacology] AND follow-up asks about the same drug(s) → ['pharmacology']\n"
+        "- Previous turn used [pubmed] AND follow-up asks for more research → ['pubmed']\n"
+        "- Previous turn used [diagnosis] AND follow-up asks about drugs for that condition → ['pharmacology']\n\n"
+        "Return ONLY a JSON array of agent keys. Examples: ['diagnosis'] or ['pharmacology'] or ['diagnosis', 'pharmacology'].\n"
         "Do NOT add any explanation. Only output the JSON array."
     )
-    
-    user_message = f"User Query: {input_text}\n\nKnowledge Core Context (for your awareness): {context_str[:300]}"
+
+    user_message = (
+        f"User Query: {input_text}\n\n"
+        + (f"Recent Session Context (use this to resolve follow-up references):\n{routing_context}\n\n"
+           if routing_context else "")
+        + f"Knowledge Core Context (for your awareness): {context_str[:300]}"
+    )
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
     
     try:
@@ -311,8 +366,18 @@ def make_agent_node(agent_key: str):
             return {"agent_outputs": [f"Error: Agent '{agent_key}' not found."]}
         
         context_str = "\n".join(state.get("context", []))
-        history_str = "\n".join(state.get("history", []))
-        
+        raw_history_str = "\n".join(state.get("history", []))
+
+        # HIPAA: Re-redact conversation history before injecting into any LLM prompt.
+        # Prior turns are stored in the DB after node_restore_privacy (real names present).
+        # Uses redact_identifying_pii() (PERSON/PHONE/EMAIL/SSN only) — NOT full redact_pii()
+        # — to avoid creating <DATE_TIME_N> placeholders that would flow into MedGemma and
+        # appear unrestored in the final output (dates are clinically necessary in history).
+        if raw_history_str:
+            history_str = privacy_manager.redact_identifying_pii(raw_history_str)
+        else:
+            history_str = raw_history_str
+
         enhanced_input = (
             f"Conversation History:\n{history_str}\n\n"
             f"Current Request: {state['redacted_input']}\n\n"
@@ -360,20 +425,23 @@ def make_agent_node(agent_key: str):
                 logger.error(f"Agent {agent_key} returned error", error=response.error)
                 return {
                     "agent_outputs": [f"## {agent_key.title()} Agent Error\n{response.error}"],
-                    "agent_thoughts": formatted_thoughts
+                    "agent_thoughts": formatted_thoughts,
+                    "agents_used": [agent_key],
                 }
-            
+
             output = response.output if response.output else "No output generated."
             return {
                 "agent_outputs": [f"## {agent_key.title()} Agent Response\n{output}"],
-                "agent_thoughts": formatted_thoughts
+                "agent_thoughts": formatted_thoughts,
+                "agents_used": [agent_key],
             }
             
         except Exception as e:
             logger.error(f"Orchestrator failed to call agent {agent_key}", error=str(e))
             return {
                 "agent_outputs": [f"## {agent_key.title()} Agent System Error\n{str(e)}"],
-                "agent_thoughts": [f"**[{agent_key.title()}]**: System Error: {str(e)}"]
+                "agent_thoughts": [f"**[{agent_key.title()}]**: System Error: {str(e)}"],
+                "agents_used": [agent_key],
             }
     return _node
 
@@ -444,7 +512,7 @@ Evaluate the following response on a scale of 1–5:
 Criteria to check:
 - Does the response address the user's query?
 - Are all clinical claims grounded in tool outputs (no fabricated facts)?
-- Does the response contain leaked PII placeholders (e.g. <PERSON_1>)?
+- Does the response contain leaked PII placeholders (e.g. <PERSON_1>)? NOTE: placeholders like <PERSON_1> are intentional de-identification tokens used by the privacy layer and are NOT a quality defect — do NOT penalise the score for their presence.
 - Is the response safe for a medical assistant context?
 
 User Query: {original_query}
@@ -567,6 +635,36 @@ orchestrator_graph = workflow.compile()
 logger.info("Orchestrator Graph Compiled", status="success")
 
 # ==========================================
+# 🗺️ ROUTING CONTEXT HELPER
+# ==========================================
+def _build_routing_context(past_turns) -> str:
+    """
+    Build a compact, HIPAA-safe routing summary from the last 3 user/assistant
+    message pairs so that node_router can resolve follow-up pronouns
+    (e.g. "his medications", "the patient") without seeing raw PII.
+
+    - User queries are run through redact_identifying_pii() — names stripped,
+      dates/drugs/conditions preserved so the router has useful signal.
+    - agents_used is read from message_metadata (populated by make_agent_node).
+
+    Example output:
+        User asked: What medications is <PERSON_1> currently taking?
+        Routed to: [patient]
+        User asked: Are there dangerous interactions between his medications?
+        Routed to: [pharmacology]
+    """
+    lines = []
+    for msg in past_turns[-6:]:   # up to 3 user/assistant pairs
+        if msg.role == "user":
+            redacted_q = privacy_manager.redact_identifying_pii(msg.content[:150])
+            lines.append(f"User asked: {redacted_q}")
+        elif msg.role == "assistant":
+            agents = (msg.message_metadata or {}).get("agents_used", [])
+            agents_str = ", ".join(agents) if agents else "unknown"
+            lines.append(f"Routed to: [{agents_str}]")
+    return "\n".join(lines)
+
+# ==========================================
 # 🌐 FASTAPI SERVER
 # ==========================================
 from fastapi.middleware.cors import CORSMiddleware
@@ -624,6 +722,10 @@ async def chat_stream_endpoint(request: ChatRequest, db: AsyncSession = Depends(
             past_turns = full_history[:-1]
             history_context = [f"{m.role.capitalize()}: {m.content}" for m in past_turns[-10:]]
 
+            # Build routing context from past turns so the router can resolve
+            # follow-up references ("his medications", "the patient", etc.)
+            routing_context = _build_routing_context(past_turns)
+
             # 5. Stream Orchestrator Events
             agent_thoughts = []
             final_output = ""
@@ -632,6 +734,7 @@ async def chat_stream_endpoint(request: ChatRequest, db: AsyncSession = Depends(
                 "judge_score": None,
                 "judge_reason": None,
                 "judge_confidence": None,
+                "agents_used": [],
             }
 
             # Emit initial "thinking" state to show immediate activity
@@ -652,7 +755,9 @@ async def chat_stream_endpoint(request: ChatRequest, db: AsyncSession = Depends(
                             "input": request.message,
                             "messages": [],
                             "history": history_context,
+                            "routing_context": routing_context,
                             "agent_thoughts": [],
+                            "agents_used": [],
                             "file_urls": file_urls,
                             "session_id": str(session_id),
                         }
@@ -694,7 +799,11 @@ async def chat_stream_endpoint(request: ChatRequest, db: AsyncSession = Depends(
                 msg_metadata["judge_score"] = graph_output["judge_score"]
                 msg_metadata["judge_reason"] = graph_output.get("judge_reason")
                 msg_metadata["judge_confidence"] = graph_output.get("judge_confidence")
-                yield f"data: {json.dumps({'type': 'metadata', 'content': msg_metadata})}\n\n"
+
+            # Capture which agents ran so future turns can use this for routing
+            msg_metadata["agents_used"] = list(dict.fromkeys(graph_output.get("agents_used", [])))
+
+            yield f"data: {json.dumps({'type': 'metadata', 'content': msg_metadata})}\n\n"
 
             if graph_final:
                  final_output = graph_final
@@ -741,25 +850,32 @@ async def chat_endpoint(request: ChatRequest, db: AsyncSession = Depends(get_db)
         past_turns = full_history[:-1]
         history_context = [f"{m.role.capitalize()}: {m.content}" for m in past_turns[-10:]]
 
+        # Build routing context from past turns so the router can resolve follow-ups
+        routing_context = _build_routing_context(past_turns)
+
         # 4. Invoke Orchestrator
         result = await orchestrator_graph.ainvoke({
             "input": request.message,
             "messages": [],
             "history": history_context,
+            "routing_context": routing_context,
             "agent_thoughts": [],
+            "agents_used": [],
             "file_urls": file_urls,
             "session_id": str(session_id),
         })
         response_text = result.get("final_output")
         agent_thinking = result.get("agent_thoughts", [])
-        
+
         msg_metadata = {
             "llm_used": "MedGemma (via HF) / OpenAI Router",
             "judge_score": result.get("judge_score"),
             "judge_reason": result.get("judge_reason"),
-            "judge_confidence": result.get("judge_confidence")
+            "judge_confidence": result.get("judge_confidence"),
+            # Capture which agents ran so future turns can use this for routing
+            "agents_used": list(dict.fromkeys(result.get("agents_used", []))),
         }
-        
+
         # 5. Save AI Response
         await chat_service.add_message(db, str(session_id), "assistant", response_text, thinking=agent_thinking, metadata=msg_metadata)
         

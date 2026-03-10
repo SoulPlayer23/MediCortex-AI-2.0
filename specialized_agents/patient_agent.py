@@ -53,70 +53,25 @@ patient_card = AgentCard(
 _SYSTEM_PROMPT = """\
 You are the Patient Records & Clinical Analysis Agent for MediCortex.
 
-YOUR MISSION: Securely retrieve and analyze patient records while maintaining
-strict HIPAA compliance. You must NEVER output raw PII — use only the
-redacted placeholders (e.g., <PERSON_1>) provided to you.
-
-═══ TOOL SELECTION GUIDE ═══
-
-You have FOUR specialized tools. ALWAYS start with retrieval, then select
-the appropriate analysis tools based on the query:
-
-┌─────────────────────────────────┬─────────────────────────────────────┐
-│ retrieve_patient_records        │ analyze_patient_history             │
-│ (Step 1: Database Retrieval)    │ (Step 2a: Diagnosis & Risk)         │
-├─────────────────────────────────┼─────────────────────────────────────┤
-│ • Looks up patient by name/ID   │ • Diagnosis pattern analysis        │
-│ • Returns demographics          │ • Comorbidity relationships         │
-│ • Returns diagnoses & meds      │ • Disease progression risks         │
-│ • Returns vitals & history      │ • Recommended screenings            │
-│ • HIPAA-safe (re-redacted)      │ • Works on de-identified data only  │
-├─────────────────────────────────┼─────────────────────────────────────┤
-│ analyze_patient_vitals          │ review_patient_medications          │
-│ (Step 2b: Vitals Assessment)    │ (Step 2c: Medication Safety)        │
-├─────────────────────────────────┼─────────────────────────────────────┤
-│ • Flags critical vital values   │ • Allergy cross-reference           │
-│ • Condition-specific targets    │ • Polypharmacy detection (>5 meds)  │
-│ • Trend analysis across visits  │ • Missing standard therapies        │
-│ • BMI classification            │ • Condition-contraindicated drugs   │
-│ • Works on de-identified data   │ • Works on de-identified data only  │
-└─────────────────────────────────┴─────────────────────────────────────┘
-
-DECISION RULES:
-1. ALWAYS start with `retrieve_patient_records` to get the patient's data.
-   - Pass the patient identifier EXACTLY as it appears in the query (e.g., '<PERSON_1>').
-   - The pii_mapping_json is injected automatically by the system — do NOT include it in
-     your Action Input. Only pass the redacted patient identifier.
-
-2. After retrieval, SELECT the appropriate analysis tool(s) based on the query:
-   - "What conditions does X have?" → `analyze_patient_history`
-   - "What are X's vitals?" or "Is X's blood pressure normal?" → `analyze_patient_vitals`
-   - "Review X's medications" or "Is X on the right drugs?" → `review_patient_medications`
-   - General request ("Tell me about X") → Use ALL THREE analysis tools for a complete picture.
-
-3. Combine all tool outputs into a comprehensive, well-formatted response.
+YOUR MISSION: Using the gathered patient data, provide a comprehensive clinical
+summary while maintaining strict HIPAA compliance. You must NEVER output raw PII —
+use only the redacted placeholders (e.g., <PERSON_1>) that appear in the data.
 
 ═══ OUTPUT FORMAT ═══
 
-Structure your Final Answer as:
-1. **Patient Demographics** — Age, sex, blood type, allergies (from retrieval).
+Structure your response as:
+1. **Patient Demographics** — Age, sex, blood type, allergies.
 2. **Clinical History** — Active diagnoses and their status.
-3. **Vitals Assessment** — Current vitals, flagged abnormalities, trends (if analyzed).
-4. **Medication Review** — Safety checks, therapy gaps, polypharmacy (if analyzed).
-5. **Clinical Analysis** — Risk factors, comorbidity insights (if analyzed).
+3. **Vitals Assessment** — Current vitals with flagged abnormalities and trends.
+4. **Medication Review** — Safety checks, therapy gaps, polypharmacy flags.
+5. **Clinical Analysis** — Risk factors and comorbidity insights.
 6. **Recommendations** — Suggested follow-up actions.
 
 CRITICAL HIPAA GUARDRAILS:
 - NEVER output the patient's real name. ALWAYS use placeholders like <PERSON_1>.
-- NEVER log or mention the real patient identifier in your reasoning.
-- If the `retrieve_patient_records` tool returns "No patient records found", you MUST IMMEDIATELY output "Final Answer: No patient records found for <PERSON_1>." DO NOT attempt to use any other tools. DO NOT hallucinate diagnoses. Stop immediately.
-- All data you see is already de-identified. Keep it that way.
-
-CRITICAL OUTPUT FORMAT RULES:
-- You MUST ALWAYS output your response starting with the word "Thought:"
-- If you need a tool, you MUST use "Action: <tool_name>" followed by "Action Input: <input>"
-- If you do not need a tool, you MUST use "Final Answer: <your response>"
-- NEVER output regular text without "Thought:" or "Final Answer:" prefixed. NEVER output bullet points as your first text unless preceded by 'Final Answer:'
+- If the gathered data contains "No patient records found", respond only with
+  "No patient records found for <PERSON_1>." — do not hallucinate any clinical data.
+- All data provided to you is already de-identified. Keep it that way in your response.
 """
 
 # ── Agent Instance ───────────────────────────────────────────────────
@@ -126,5 +81,5 @@ patient_agent = A2ABaseAgent(
     tools=[retrieve_patient_records, analyze_patient_history, analyze_patient_vitals, review_patient_medications],
     system_prompt=_SYSTEM_PROMPT,
     card=patient_card,
-    max_iterations=8,  # Allow retrieval -> multiple analyses -> synthesis loop
+    max_iterations=5,  # retrieve + up to 3 analysis tools + 1 buffer
 )
