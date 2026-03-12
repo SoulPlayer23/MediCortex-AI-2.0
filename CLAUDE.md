@@ -126,7 +126,7 @@ Affected tools: `crawl_diagnosis_articles`, `crawl_medical_articles`, `check_dru
 
 ### Data Layer
 
-- **PostgreSQL** (async via `asyncpg` + SQLAlchemy): `chat_sessions` + `chat_messages`. The `chat_messages` table has `thinking JSONB` (agent ReAct steps) and `message_metadata JSONB` (judge score, model used). Schema source of truth is `database/schema.sql`. A `patients` table is planned (see `Todo.md`) to replace the current simulated in-memory store in `tools/patient_retriever_tools.py`.
+- **PostgreSQL** (async via `asyncpg` + SQLAlchemy): `chat_sessions` + `chat_messages` + `patients`. The `chat_messages` table has `thinking JSONB` (agent ReAct steps) and `message_metadata JSONB` (judge score, model used). The `patients` table stores demographics, diagnoses, medications, allergies, and vitals history as JSONB columns — seeded with 14,803 synthetic patients from three Synthea CSV datasets (APR2020, NOV2021, COVID19; Apache 2.0). Schema source of truth is `database/schema.sql`. Re-seed anytime via `python -m tools.migrate_db` (idempotent upsert). Patient lookup in `tools/patient_retriever_tools.py` queries this table via `asyncpg` using a per-call event loop (safe from LangGraph's sync thread-pool nodes).
 - **MinIO**: Object storage for uploaded PDFs/images. `MINIO_URL` must be a full URL (e.g. `http://localhost:9000`). Accessed via `services/minio_service.py` which reads all config from `settings`.
 - **Schema note**: The Pydantic schema alias `message_metadata` avoids collision with SQLAlchemy's internal `MetaData` registry.
 

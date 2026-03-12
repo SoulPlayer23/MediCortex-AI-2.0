@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, text, BigInteger
+from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, text, BigInteger
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -28,3 +28,26 @@ class ChatMessage(Base):
     message_metadata = Column("message_metadata", JSONB, server_default=text("'{}'::jsonb"))
 
     session = relationship("ChatSession", back_populates="messages")
+
+
+class Patient(Base):
+    __tablename__ = "patients"
+
+    id             = Column(UUID(as_uuid=True), primary_key=True, server_default=text("uuid_generate_v4()"))
+    patient_id     = Column(String, unique=True, nullable=False, index=True)
+    full_name      = Column(String, nullable=False)
+    date_of_birth  = Column(Date)
+    age            = Column(Integer)
+    sex            = Column(String)
+    blood_type     = Column(String)
+    race           = Column(String)
+    ethnicity      = Column(String)
+    marital_status = Column(String)
+    address        = Column(JSONB, server_default=text("'{}'::jsonb"))
+    diagnoses      = Column(JSONB, server_default=text("'[]'::jsonb"))
+    medications    = Column(JSONB, server_default=text("'[]'::jsonb"))
+    allergies      = Column(JSONB, server_default=text("'[]'::jsonb"))
+    vitals_history = Column(JSONB, server_default=text("'[]'::jsonb"))
+    last_visit     = Column(Date)
+    created_at     = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at     = Column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())

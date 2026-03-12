@@ -11,172 +11,83 @@ Compliant with:
   - A2A (typed schemas via LangChain @tool)
 """
 
+import asyncio
 import json
+import os
 import re
+from typing import Optional
 
+import asyncpg
 import structlog
+from dotenv import load_dotenv
 from langchain_core.tools import tool
+
+load_dotenv()
 
 logger = structlog.get_logger("PatientRetrieverTool")
 
-# ── Simulated Patient Database ──────────────────────────────────────
-# In production, this would query a real EHR/patient records table.
-# The keys are lowercase for case-insensitive matching.
-_SIMULATED_PATIENTS = {
-    "john smith": {
-        "patient_id": "PT-10042",
-        "age": 45,
-        "sex": "Male",
-        "blood_type": "O+",
-        "diagnoses": [
-            {"condition": "Type 2 Diabetes", "diagnosed": "2019-03-15", "status": "Active"},
-            {"condition": "Hypertension", "diagnosed": "2018-07-20", "status": "Active"},
-            {"condition": "Hyperlipidemia", "diagnosed": "2020-01-10", "status": "Managed"},
-        ],
-        "medications": [
-            {"name": "Metformin", "dosage": "500mg", "frequency": "Twice daily"},
-            {"name": "Lisinopril", "dosage": "10mg", "frequency": "Once daily"},
-            {"name": "Atorvastatin", "dosage": "20mg", "frequency": "Once daily at bedtime"},
-        ],
-        "allergies": ["Penicillin", "Sulfa drugs"],
-        "last_visit": "2026-01-28",
-        "vitals_history": [
-            {
-                "date": "2026-01-28",
-                "blood_pressure": "138/88 mmHg",
-                "heart_rate": "76 bpm",
-                "temperature": "98.6°F",
-                "respiratory_rate": "16/min",
-                "spo2": "97%",
-                "weight": "92 kg",
-                "bmi": "28.4",
-            },
-            {
-                "date": "2025-10-15",
-                "blood_pressure": "142/92 mmHg",
-                "heart_rate": "80 bpm",
-                "temperature": "98.4°F",
-                "respiratory_rate": "18/min",
-                "spo2": "96%",
-                "weight": "94 kg",
-                "bmi": "29.0",
-            },
-        ],
-    },
-    "jane doe": {
-        "patient_id": "PT-10078",
-        "age": 32,
-        "sex": "Female",
-        "blood_type": "A+",
-        "diagnoses": [
-            {"condition": "Asthma", "diagnosed": "2010-06-01", "status": "Active"},
-            {"condition": "Iron Deficiency Anemia", "diagnosed": "2024-11-15", "status": "Under Treatment"},
-        ],
-        "medications": [
-            {"name": "Albuterol Inhaler", "dosage": "90mcg", "frequency": "As needed"},
-            {"name": "Ferrous Sulfate", "dosage": "325mg", "frequency": "Once daily"},
-        ],
-        "allergies": ["Aspirin"],
-        "last_visit": "2026-02-10",
-        "vitals_history": [
-            {
-                "date": "2026-02-10",
-                "blood_pressure": "118/74 mmHg",
-                "heart_rate": "68 bpm",
-                "temperature": "98.2°F",
-                "respiratory_rate": "14/min",
-                "spo2": "98%",
-                "weight": "58 kg",
-                "bmi": "22.1",
-            },
-        ],
-    },
-    "raj patel": {
-        "patient_id": "PT-10135",
-        "age": 60,
-        "sex": "Male",
-        "blood_type": "B+",
-        "diagnoses": [
-            {"condition": "Coronary Artery Disease", "diagnosed": "2017-09-05", "status": "Stable"},
-            {"condition": "Type 2 Diabetes", "diagnosed": "2015-04-12", "status": "Active"},
-            {"condition": "Chronic Kidney Disease Stage 3", "diagnosed": "2022-08-20", "status": "Monitored"},
-        ],
-        "medications": [
-            {"name": "Aspirin", "dosage": "81mg", "frequency": "Once daily"},
-            {"name": "Metoprolol", "dosage": "50mg", "frequency": "Twice daily"},
-            {"name": "Insulin Glargine", "dosage": "20 units", "frequency": "Once daily at bedtime"},
-            {"name": "Losartan", "dosage": "50mg", "frequency": "Once daily"},
-        ],
-        "allergies": [],
-        "last_visit": "2026-02-01",
-        "vitals_history": [
-            {
-                "date": "2026-02-01",
-                "blood_pressure": "142/90 mmHg",
-                "heart_rate": "72 bpm",
-                "temperature": "98.8°F",
-                "respiratory_rate": "17/min",
-                "spo2": "95%",
-                "weight": "85 kg",
-                "bmi": "27.8",
-            },
-            {
-                "date": "2025-11-10",
-                "blood_pressure": "148/94 mmHg",
-                "heart_rate": "78 bpm",
-                "temperature": "98.6°F",
-                "respiratory_rate": "18/min",
-                "spo2": "94%",
-                "weight": "87 kg",
-                "bmi": "28.5",
-            },
-            {
-                "date": "2025-08-20",
-                "blood_pressure": "150/96 mmHg",
-                "heart_rate": "82 bpm",
-                "temperature": "98.4°F",
-                "respiratory_rate": "19/min",
-                "spo2": "94%",
-                "weight": "89 kg",
-                "bmi": "29.1",
-            },
-        ],
-    },
-    "maria garcia": {
-        "patient_id": "PT-10201",
-        "age": 55,
-        "sex": "Female",
-        "blood_type": "AB+",
-        "diagnoses": [
-            {"condition": "Rheumatoid Arthritis", "diagnosed": "2016-02-18", "status": "Active"},
-            {"condition": "Osteoporosis", "diagnosed": "2021-09-30", "status": "Under Treatment"},
-            {"condition": "Hypothyroidism", "diagnosed": "2013-05-22", "status": "Managed"},
-            {"condition": "Gastroesophageal Reflux Disease", "diagnosed": "2020-03-10", "status": "Active"},
-        ],
-        "medications": [
-            {"name": "Methotrexate", "dosage": "15mg", "frequency": "Once weekly"},
-            {"name": "Folic Acid", "dosage": "1mg", "frequency": "Once daily"},
-            {"name": "Alendronate", "dosage": "70mg", "frequency": "Once weekly"},
-            {"name": "Levothyroxine", "dosage": "75mcg", "frequency": "Once daily before breakfast"},
-            {"name": "Omeprazole", "dosage": "20mg", "frequency": "Once daily"},
-            {"name": "Calcium + Vitamin D", "dosage": "600mg/400IU", "frequency": "Twice daily"},
-        ],
-        "allergies": ["NSAIDs", "Codeine"],
-        "last_visit": "2026-02-20",
-        "vitals_history": [
-            {
-                "date": "2026-02-20",
-                "blood_pressure": "128/82 mmHg",
-                "heart_rate": "74 bpm",
-                "temperature": "98.4°F",
-                "respiratory_rate": "15/min",
-                "spo2": "98%",
-                "weight": "68 kg",
-                "bmi": "25.6",
-            },
-        ],
-    },
-}
+_DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql+asyncpg://postgres:postgres@localhost:5432/medicortex",
+).replace("postgresql+asyncpg://", "postgresql://")
+
+
+# ── Database helpers ─────────────────────────────────────────────────────────
+
+_JSONB_FIELDS = {"address", "diagnoses", "medications", "allergies", "vitals_history"}
+
+
+def _parse_row(row) -> dict:
+    """Convert an asyncpg Record to a plain dict, decoding JSONB strings."""
+    out = dict(row)
+    for field in _JSONB_FIELDS:
+        val = out.get(field)
+        if isinstance(val, str):
+            try:
+                out[field] = json.loads(val)
+            except (json.JSONDecodeError, TypeError):
+                pass
+    return out
+
+
+async def _fetch_patient_async(real_identifier: str) -> Optional[dict]:
+    """Query patients table by full_name (case-insensitive) or patient_id."""
+    conn = await asyncpg.connect(_DATABASE_URL)
+    try:
+        row = await conn.fetchrow(
+            """
+            SELECT * FROM patients
+            WHERE lower(full_name) = lower($1)
+               OR patient_id = $1
+            LIMIT 1
+            """,
+            real_identifier,
+        )
+        if row:
+            return _parse_row(row)
+        # Partial-name fallback
+        row = await conn.fetchrow(
+            "SELECT * FROM patients WHERE lower(full_name) LIKE lower($1) LIMIT 1",
+            f"%{real_identifier}%",
+        )
+        return _parse_row(row) if row else None
+    finally:
+        await conn.close()
+
+
+def _fetch_patient(real_identifier: str) -> Optional[dict]:
+    """Sync wrapper safe for thread-pool contexts (LangGraph sync nodes)."""
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(_fetch_patient_async(real_identifier))
+    finally:
+        loop.close()
+
+
+# ── (legacy simulated data removed — replaced by PostgreSQL patients table) ──
+
+# (Simulated in-memory data removed — all patient lookups now query the PostgreSQL
+#  `patients` table via _fetch_patient() above.)
 
 
 def _resolve_identifier(redacted_identifier: str, pii_mapping_json: str) -> str:
@@ -278,15 +189,8 @@ def retrieve_patient_records(redacted_identifier: str, pii_mapping_json: str = "
     real_identifier = _resolve_identifier(redacted_identifier, pii_mapping_json)
     logger.info("patient_identifier_resolved")  # Do NOT log real_identifier (HIPAA)
 
-    # Step 2: Look up patient (case-insensitive)
-    patient = _SIMULATED_PATIENTS.get(real_identifier.lower())
-
-    if not patient:
-        # Also try matching by patient_id
-        for _, record in _SIMULATED_PATIENTS.items():
-            if record["patient_id"].lower() == real_identifier.lower():
-                patient = record
-                break
+    # Step 2: Look up patient via PostgreSQL
+    patient = _fetch_patient(real_identifier)
 
     if not patient:
         logger.info("patient_not_found", redacted_identifier=redacted_identifier)
@@ -299,14 +203,14 @@ def retrieve_patient_records(redacted_identifier: str, pii_mapping_json: str = "
     structured = {
         "patient_id": patient["patient_id"],
         "placeholder": redacted_identifier,
-        "age": patient["age"],
-        "sex": patient["sex"],
-        "blood_type": patient["blood_type"],
-        "allergies": patient["allergies"],
-        "diagnoses": patient["diagnoses"],
-        "medications": patient["medications"],
-        "vitals_history": patient.get("vitals_history", []),
-        "last_visit": patient["last_visit"],
+        "age": patient.get("age"),
+        "sex": patient.get("sex"),
+        "blood_type": patient.get("blood_type"),
+        "allergies": patient.get("allergies") or [],
+        "diagnoses": patient.get("diagnoses") or [],
+        "medications": patient.get("medications") or [],
+        "vitals_history": patient.get("vitals_history") or [],
+        "last_visit": str(patient["last_visit"]) if patient.get("last_visit") else None,
     }
 
     # Step 4: Format human-readable markdown
