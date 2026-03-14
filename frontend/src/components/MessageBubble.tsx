@@ -10,9 +10,10 @@ interface MessageBubbleProps {
     content: string;
     thinking?: string[];
     metadata?: any;
+    isStreaming?: boolean;
 }
 
-const MessageBubble = ({ role, content, thinking, metadata }: MessageBubbleProps) => {
+const MessageBubble = ({ role, content, thinking, metadata, isStreaming }: MessageBubbleProps) => {
     const isUser = role === 'user';
     const [isThinkingOpen, setIsThinkingOpen] = useState(false);
     const [isMetadataOpen, setIsMetadataOpen] = useState(false);
@@ -117,6 +118,18 @@ const MessageBubble = ({ role, content, thinking, metadata }: MessageBubbleProps
                                     </div>
                                 </div>
                             )}
+                        </div>
+                    )}
+
+                    {/* Streaming pulse — shown after thinking steps arrive but before first token */}
+                    {isStreaming && !content && thinking && thinking.length > 0 && (
+                        <div className="flex items-center gap-2 mb-4 text-xs text-zinc-500 animate-in fade-in duration-300">
+                            <span className="flex gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce [animation-delay:0ms]" />
+                                <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce [animation-delay:150ms]" />
+                                <span className="w-1.5 h-1.5 rounded-full bg-zinc-500 animate-bounce [animation-delay:300ms]" />
+                            </span>
+                            Generating response...
                         </div>
                     )}
 

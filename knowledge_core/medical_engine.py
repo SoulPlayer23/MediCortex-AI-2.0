@@ -5,10 +5,11 @@ import sys
 import numpy as np
 import requests
 from sklearn.metrics.pairwise import cosine_similarity
+from config import settings
 
-# Constants
-ARANGO_URL = "http://localhost:8529/_db/clinical_ontology/_api"
-AUTH = ('root', 'arangopwd123')
+# Constants — read from config so .env controls the host
+ARANGO_URL = f"{settings.ARANGODB_HOST.rstrip('/')}/_db/{settings.ARANGODB_DB_NAME}/_api"
+AUTH = (settings.ARANGODB_USERNAME, settings.ARANGODB_PASSWORD)
 DEFAULT_ASSET_DIR = os.path.join(os.path.dirname(__file__), "assets")
 
 class MedicalReasoningEngine:

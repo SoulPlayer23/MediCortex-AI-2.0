@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import MessageBubble from './MessageBubble';
 import InputArea from './InputArea';
-import { Menu, PanelLeftOpen, BrainCircuit } from 'lucide-react';
+import { Menu, PanelLeftOpen, BrainCircuit, ArrowDown } from 'lucide-react';
 import clsx from 'clsx';
 
 interface Message {
@@ -23,17 +23,40 @@ interface ChatAreaProps {
 const ChatArea = ({ isSidebarOpen, toggleSidebar, sessionId, setSessionId }: ChatAreaProps) => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [showScrollButton, setShowScrollButton] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const scrollContainerRef = useRef<HTMLDivElement>(null);
     const skipNextFetch = useRef(false);
+    const isNearBottomRef = useRef(true);
 
-    const scrollToBottom = () => {
+    const SCROLL_THRESHOLD = 100; // px from bottom considered "near bottom"
+
+    const scrollToBottom = useCallback(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    };
+    }, []);
 
+    // Track whether the user is near the bottom
     useEffect(() => {
-        scrollToBottom();
-    }, [messages, isLoading]);
+        const container = scrollContainerRef.current;
+        if (!container) return;
+
+        const handleScroll = () => {
+            const { scrollTop, scrollHeight, clientHeight } = container;
+            const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+            isNearBottomRef.current = distanceFromBottom <= SCROLL_THRESHOLD;
+            setShowScrollButton(!isNearBottomRef.current && messages.length > 0);
+        };
+
+        container.addEventListener('scroll', handleScroll, { passive: true });
+        return () => container.removeEventListener('scroll', handleScroll);
+    }, [messages.length]);
+
+    // Auto-scroll only when user is already near the bottom
+    useEffect(() => {
+        if (isNearBottomRef.current) {
+            scrollToBottom();
+        }
+    }, [messages, isLoading, scrollToBottom]);
 
     useEffect(() => {
         if (skipNextFetch.current) {
@@ -61,6 +84,10 @@ const ChatArea = ({ isSidebarOpen, toggleSidebar, sessionId, setSessionId }: Cha
     };
 
     const handleSend = async (content: string, attachments: any[] = []) => {
+        // Always scroll to bottom when the user sends a message
+        isNearBottomRef.current = true;
+        setShowScrollButton(false);
+
         // Add user message immediately
         const userMsg: Message = { role: 'user', content, attachments };
         setMessages((prev) => [...prev, userMsg]);
@@ -168,6 +195,9 @@ const ChatArea = ({ isSidebarOpen, toggleSidebar, sessionId, setSessionId }: Cha
     };
 
     const isEmptyState = messages.length === 0;
+    const streamingMsgId = isLoading
+        ? [...messages].reverse().find(m => m.role === 'assistant')?.id
+        : undefined;
 
     return (
         <div className="flex-1 flex flex-col h-full relative bg-zinc-900">
@@ -215,12 +245,24 @@ const ChatArea = ({ isSidebarOpen, toggleSidebar, sessionId, setSessionId }: Cha
                                 role={msg.role}
                                 content={msg.content}
                                 thinking={msg.thinking}
+                                isStreaming={msg.id !== undefined && msg.id === streamingMsgId}
                             />
                         ))}
                         <div ref={messagesEndRef} className="h-4" />
                     </div>
                 )}
             </div>
+
+            {/* Scroll-to-bottom button */}
+            {showScrollButton && (
+                <button
+                    onClick={scrollToBottom}
+                    className="absolute bottom-28 right-6 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-zinc-700 hover:bg-zinc-600 text-zinc-200 text-sm shadow-lg transition-all animate-in fade-in slide-in-from-bottom-2 duration-200"
+                >
+                    <ArrowDown className="w-3.5 h-3.5" />
+                    Scroll to bottom
+                </button>
+            )}
 
             <InputArea onSend={handleSend} isLoading={isLoading} isEmptyState={isEmptyState} />
         </div>

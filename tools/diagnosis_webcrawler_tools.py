@@ -14,7 +14,9 @@ from urllib.parse import urlparse
 
 import httpx
 import structlog
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+import warnings
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 from ddgs import DDGS
 from langchain_core.tools import tool
 from utils.cache_utils import redis_cache

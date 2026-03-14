@@ -103,7 +103,7 @@ Each agent in `specialized_agents/` extends `A2ABaseAgent` and is registered in 
 ### LLM Stack
 
 - **Router / Aggregator / Knowledge Refinement**: `gpt-4o-mini` via `langchain-openai`
-- **Specialized Agents (default)**: MedGemma hosted locally at `http://100.107.2.102:8000/predict` (homeserver via Tailscale VPN — may be offline). URL is configured via `MEDGEMMA_API_URL` in `config.py`. Falls back to `gpt-4o-mini` automatically on connection failure. See `specialized_agents/medgemma_llm.py`. Supports token streaming via `_stream()` which consumes the `/predict/stream` SSE endpoint; falls back to a single-chunk `_call()` if streaming fails.
+- **Specialized Agents (default)**: MedGemma runs locally on this machine at `http://localhost:8000/predict`. URL is configured via `MEDGEMMA_API_URL` in `config.py` (also set in `.env`). Falls back to `gpt-4o-mini` automatically on connection failure. See `specialized_agents/medgemma_llm.py`. Supports token streaming via `_stream()` which consumes the `/predict/stream` SSE endpoint; falls back to a single-chunk `_call()` if streaming fails.
 - **Model-as-Judge**: Groq `llama-3.3-70b-versatile` (fallback: `llama-3.1-8b-instant`). Controlled by `JUDGE_ENABLED`, `JUDGE_SAMPLE_RATE`, `JUDGE_MAX_INPUT_TOKENS` in `config.py`.
 
 ### Tool Caching
@@ -124,11 +124,32 @@ Affected tools: `crawl_diagnosis_articles`, `crawl_medical_articles`, `check_dru
 
 `node_router` receives a `routing_context` string (compact redacted summary of the last 3 turns) built by `_build_routing_context()` in `orchestrator.py`. This resolves ambiguous follow-up queries (e.g. "Are there any dangerous interactions between his medications?" → `[pharmacology]`). The `agents_used` list from each turn is persisted in `message_metadata JSONB` and read back on the next turn to inform routing.
 
+**Routing rules (as of current prompt):**
+- Symptoms only → `['diagnosis']`
+- Treatment options / medications for a disease → `['diagnosis', 'pharmacology']`
+- Symptoms AND treatment → `['diagnosis', 'pharmacology']`
+- Named drug (interaction/dosage/alternatives), no disease context → `['pharmacology']`
+- Research/literature → `['pubmed']`
+- Document/image/lab result attached → always includes `['report_analyzer']`
+
 ### Data Layer
 
 - **PostgreSQL** (async via `asyncpg` + SQLAlchemy): `chat_sessions` + `chat_messages` + `patients`. The `chat_messages` table has `thinking JSONB` (agent ReAct steps) and `message_metadata JSONB` (judge score, model used). The `patients` table stores demographics, diagnoses, medications, allergies, and vitals history as JSONB columns — seeded with 14,803 synthetic patients from three Synthea CSV datasets (APR2020, NOV2021, COVID19; Apache 2.0). Schema source of truth is `database/schema.sql`. Re-seed anytime via `python -m tools.migrate_db` (idempotent upsert). Patient lookup in `tools/patient_retriever_tools.py` queries this table via `asyncpg` using a per-call event loop (safe from LangGraph's sync thread-pool nodes).
 - **MinIO**: Object storage for uploaded PDFs/images. `MINIO_URL` must be a full URL (e.g. `http://localhost:9000`). Accessed via `services/minio_service.py` which reads all config from `settings`.
 - **Schema note**: The Pydantic schema alias `message_metadata` avoids collision with SQLAlchemy's internal `MetaData` registry.
+
+### Frontend
+
+React 19 + Vite + Tailwind CSS SPA in `frontend/`. Talks directly to the orchestrator at `http://localhost:8001`.
+
+Key components:
+- **`App.tsx`** — root layout; owns `isSidebarOpen` and `currentSessionId` state.
+- **`Sidebar.tsx`** — fetches `/chats` on mount and whenever `currentSessionId` or `isOpen` changes. Clicking a session calls `onSelectChat(session.id)`.
+- **`ChatArea.tsx`** — fetches `/chats/{id}` when `sessionId` changes; streams `/chat/stream` SSE for new messages. Implements **smart scroll**: auto-scrolls to bottom only when the user is within 100 px of the bottom (`isNearBottomRef`); shows an `ArrowDown` button otherwise.
+- **`MessageBubble.tsx`** — renders user/assistant messages with Markdown + syntax highlighting. Includes a collapsible **Thinking Process** accordion showing ReAct steps. Shows an animated bouncing-dots indicator while `isStreaming && content === '' && thinking.length > 0`.
+- **`InputArea.tsx`** — text input with attachment and microphone icons.
+
+Dev server runs at `http://localhost:5173` (`npm run dev`). Backend URL is hardcoded to `localhost:8001` — update if the orchestrator moves.
 
 ### MCP Server
 
@@ -160,13 +181,13 @@ Affected tools: `crawl_diagnosis_articles`, `crawl_medical_articles`, `check_dru
 - Errors are returned as structured text (never crash the server).
 
 ### Config
-All settings are loaded from `.env` via `config.py` (Pydantic `BaseSettings`). Required: `OPENAI_API_KEY`. Optional: `GROQ_API_KEY` (judge), `REDIS_URL`, `DATABASE_URL`, `MINIO_*`. A `.env` template is committed at the repo root.
+All settings are loaded from `.env` via `config.py` (Pydantic `BaseSettings`). Required: `OPENAI_API_KEY`. Optional: `GROQ_API_KEY` (judge), `REDIS_URL`, `DATABASE_URL`, `MINIO_*`, `MEDGEMMA_API_URL`, `ARANGODB_HOST`, `ARANGODB_USERNAME`, `ARANGODB_PASSWORD`, `ARANGODB_DB_NAME`. A `.env` template is committed at the repo root. All service hostnames use `homeserver` (Tailscale) except `MEDGEMMA_API_URL` which uses `localhost`.
 
 ### Infrastructure Resilience
 All external services degrade gracefully when offline:
 - **Redis**: Falls back to in-memory cache (idempotency + tool caching both have fallbacks).
-- **ArangoDB / Knowledge Core** (homeserver via Tailscale): `_aql()` has a 10s timeout; missing asset files are caught at init. Knowledge context is empty but the request completes normally.
-- **MedGemma** (homeserver via Tailscale): Automatically falls back to `gpt-4o-mini` on connection failure.
+- **ArangoDB / Knowledge Core** (homeserver via Tailscale): `_aql()` has a 10s timeout; missing asset files are caught at init. Knowledge context is empty but the request completes normally. `ARANGO_URL` in `knowledge_core/medical_engine.py` is built from `settings.ARANGODB_HOST` — do not hardcode it.
+- **MedGemma** (localhost): Automatically falls back to `gpt-4o-mini` on connection failure.
 
 ### Test Structure
 Tests live in `tests/` with subdirectories: `agents/`, `integration/`, `mcp/`, `tools/`, `unit/`. `pytest.ini` sets `asyncio_mode = auto`. Mocking strategy for agents: mock `Envelope` payloads and assert `AgentResponse` output fields.

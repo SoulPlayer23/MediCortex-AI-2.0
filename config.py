@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
 
     # MedGemma API (homeserver via Tailscale)
-    MEDGEMMA_API_URL: str = "http://100.107.2.102:8000/predict"
+    MEDGEMMA_API_URL: str = "http://localhost:8000/predict"
 
     # ── Model-as-Judge (A2A §5.2) ─────────────────────────────────────
     GROQ_API_KEY: str = ""
