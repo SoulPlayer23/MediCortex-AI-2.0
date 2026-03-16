@@ -4,7 +4,10 @@ import ChatArea from './components/ChatArea';
 
 function App() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(() => {
+    const match = window.location.pathname.match(/\/chat\/(.+)/);
+    return match ? match[1] : null;
+  });
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#212121]">

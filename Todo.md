@@ -12,51 +12,24 @@ _None_
 
 ### 🟡 Medium
 
-#### AGG-1 — Aggregator emits duplicate sections
-**Component:** `orchestrator.py` → `node_aggregator` (GPT-4o-mini system prompt)
-**Observed:** "Consider Specialist Referral" appeared twice in the diabetes response with slightly different wording (endocrinologist vs. primary care physician). The judge (`node_reviewer`) flagged it inline: *"The referral suggestions were repeated multiple times; please ensure to streamline this in practice."*
-**Root cause:** The aggregator is not merging near-identical recommendations from multiple agents before emitting the final Markdown.
-**Fix:** Tighten the aggregator system prompt to explicitly deduplicate sections and consolidate near-identical recommendations into a single entry.
-
----
-
-#### AGG-2 — Aggregator does not deduplicate redundant source snippets
-**Component:** `orchestrator.py` → `node_aggregator` (GPT-4o-mini system prompt)
-**Observed:** In the metformin + ibuprofen drug response, Drugs.com Sources 3–7 all contained the same sentence ("ibuprofen is one of 394 medications known to interact with metformin") with no new information per entry.
-**Root cause:** The aggregator passes through all source snippets from agent outputs without collapsing those that carry identical information.
-**Fix:** Update the aggregator system prompt to deduplicate source snippets — keep only the first occurrence of a unique fact and drop subsequent entries that add no new information.
+_None_
 
 ---
 
 ### 🔵 Low / UX
 
-#### UI-4 — Page refresh on a chat URL loads blank empty state
-**Component:** `frontend/src/App.tsx`
-**Observed:** Refreshing the browser while viewing `/chat/{session_id}` renders a blank new-chat screen even though the URL still points to that session. The chat history is lost until the user navigates via the sidebar.
-**Root cause:** `App.tsx` initialises `currentSessionId` as `null` and never reads `window.location.pathname`. The URL written by `window.history.pushState` is ignored on hard refresh, so `ChatArea` never calls `fetchMessages`.
-**Fix:** Seed `currentSessionId` from the URL on first render:
-```ts
-const [currentSessionId, setCurrentSessionId] = useState<string | null>(() => {
-  const match = window.location.pathname.match(/\/chat\/(.+)/);
-  return match ? match[1] : null;
-});
-```
-
----
-
 #### UI-5 — Last messages scroll under the input bar and disclaimer
 **Component:** `frontend/src/components/InputArea.tsx`, `ChatArea.tsx`
-**Observed:** When scrolling to the bottom, the last message(s) are hidden behind the absolutely-positioned input box and the "MediCortex AI can make mistakes" disclaimer text.
-**Root cause:** `InputArea` uses `absolute bottom-6` so it floats on top of the `overflow-y-auto` scroll container. The messages list uses a fixed `pb-48` (192px) to create clearance, but this doesn't account for a taller textarea (up to 200px), attachment previews, or the disclaimer (~32px). `messagesEndRef` is only `h-4` (16px), so the scroll anchor lands too close to the last message.
-**Fix:** Replace fixed `pb-48` with a larger clearance (e.g. `pb-56`) and increase `messagesEndRef` height to match the maximum possible InputArea height, or restructure InputArea to be `relative` (in-flow) and remove the absolute positioning.
+**Observed:** When scrolling through a long response, message content is visible behind the absolutely-positioned input box and the "MediCortex AI can make mistakes" disclaimer text.
+**Root cause:** `InputArea` uses `absolute bottom-6` so it floats on top of the `overflow-y-auto` scroll container. The scroll container extends all the way to the viewport bottom, so content at any scroll position can appear behind the input bar. Padding hacks (`pb-48`, `pb-80`) only help at the very end of the content, not during mid-scroll.
+**Fix:** Either make `InputArea` in-flow (remove `absolute`) in chat mode so the scroll container naturally stops above it, or add a same-height in-flow spacer div in `ChatArea.tsx` to reserve that space. Note: Vite HMR does not detect file changes made from WSL/git-bash on this machine — requires a manual frontend restart (`cd frontend && npm run dev`) after applying the fix.
 
----
+#### AGG-2 — Sources not surfaced as a distinct UI element
+**Observed:** Sources cited by agents appear inline as raw Markdown hyperlinks scattered through the response text (e.g. `[Mayo Clinic](https://...)`). Same source URL can appear multiple times across different claims.
+**Goal:** Collect all unique source URLs from the aggregated response and render them as a dedicated "Sources" section or UI component (e.g. numbered footnotes, a collapsible panel, or pill-style chips) rather than inline links.
+**Planned work:** Aggregator extracts unique `(title, url)` pairs → passes them as structured metadata → `MessageBubble.tsx` renders a Sources block below the response.
+**Note:** Cross-agent deduplication of same-URL citations should also be handled here.
 
-#### UI-3 — Duplicate message bubbles on backend connection failure
-**Component:** `frontend/src/components/ChatArea.tsx` → `handleSend`
-**Observed:** When the backend is unreachable, two assistant bubbles appear: the initial streaming placeholder (with "Thinking Process" pulsing dot) and a second error message bubble below it.
-**Root cause:** On fetch failure, the `catch` block appends a new error `Message` object instead of replacing the existing placeholder (`aiMsgId`).
-**Fix:** In the `catch` block, replace the placeholder by mapping over messages and updating the entry matching `aiMsgId` with the error content, rather than pushing a new message.
 
 ---
 
@@ -70,3 +43,12 @@ Added bouncing dots + "Generating response..." indicator in `MessageBubble.tsx`,
 
 #### UI-2 — Chat does not auto-scroll to latest message
 Implemented smart scroll in `ChatArea.tsx` using `isNearBottomRef`. Auto-scrolls only when within 100px of bottom; shows "↓ Scroll to bottom" button otherwise. Verified working in browser.
+
+#### UI-4 — Page refresh on a chat URL loads blank empty state
+Seeded `currentSessionId` from `window.location.pathname` in `App.tsx` using a lazy `useState` initializer.
+
+#### UI-3 — Duplicate message bubbles on backend connection failure
+`catch` block now maps over messages to replace the placeholder (`aiMsgId`) instead of pushing a new error bubble.
+
+#### AGG-1 — Aggregator emits duplicate sections
+Added explicit deduplication rules to the `node_aggregator` system prompt in `orchestrator.py`: merge near-identical recommendations, keep only first occurrence of repeated source facts.

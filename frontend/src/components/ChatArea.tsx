@@ -185,11 +185,11 @@ const ChatArea = ({ isSidebarOpen, toggleSidebar, sessionId, setSessionId }: Cha
 
         } catch (error) {
             console.error("API Call Failed:", error);
-            const errorMsg: Message = {
-                role: 'assistant',
-                content: "I'm sorry, I'm having trouble connecting to the Orchestrator. Please ensure the backend is running on port 8001."
-            };
-            setMessages((prev) => [...prev, errorMsg]);
+            setMessages((prev) => prev.map(msg =>
+                msg.id === aiMsgId
+                    ? { ...msg, content: "I'm sorry, I'm having trouble connecting to the Orchestrator. Please ensure the backend is running on port 8001." }
+                    : msg
+            ));
             setIsLoading(false);
         }
     };

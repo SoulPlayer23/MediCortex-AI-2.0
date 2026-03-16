@@ -47,15 +47,16 @@ structlog.configure(
 logger = structlog.get_logger("Orchestrator")
 
 # --- Local Imports (Late Import for Engines) ---
-logger.info("Importing Local Engines...")
 try:
     from knowledge_core.medical_engine import MedicalReasoningEngine
-    logger.info("Initializing MedicalReasoningEngine...")
-    medical_engine = MedicalReasoningEngine()
-    logger.info("MedicalReasoningEngine connected", status="success")
-except Exception as e:
-    logger.warning("MedicalReasoningEngine unavailable, knowledge retrieval disabled", error=str(e))
-    medical_engine = None
+    _medical_engine_available = True
+except Exception as _e:
+    logger.warning("MedicalReasoningEngine module unavailable at import", error=str(_e))
+    _medical_engine_available = False
+
+# Singletons — set to None here; initialized once in lifespan() by the worker process.
+# This prevents triple-initialization caused by reload=True (main process + reloader + worker).
+medical_engine = None
 
 from specialized_agents.agents import AGENT_REGISTRY
 from specialized_agents.protocols import Envelope, AgentResponse
@@ -144,8 +145,7 @@ class PrivacyManager:
             restored_text = restored_text.replace(placeholder, original_value)
         return restored_text
 
-logger.info("Instantiating PrivacyManager Singleton")
-privacy_manager = PrivacyManager()
+privacy_manager = None
 
 # ==========================================
 # 🧠 AGENT STATE DEFINITION
@@ -194,17 +194,7 @@ def consult_medical_knowledge(query: str) -> str:
     formatted = [f"- {r['name']} ({r['relation']}, Hop: {r.get('hop', '?')})" for r in results]
     return "\n".join(formatted) if formatted else "No specific knowledge found in graph."
 
-try:
-    logger.info("Initializing OpenAI LLM Client (Router)")
-    llm = ChatOpenAI(
-        model="gpt-4o-mini",
-        temperature=0.0,
-        api_key=settings.OPENAI_API_KEY
-    )
-    logger.info("OpenAI Client Ready", status="success")
-except Exception as e:
-    logger.error("OpenAI setup failed", error=str(e))
-    llm = None
+llm = None
 
 # ==========================================
 # 🕸️ LANGGRAPH NODES
@@ -458,9 +448,13 @@ def node_aggregator(state: AgentState):
     
     formatting_prompt = (
         "You are the MediCortex Interface. Format the following medical agent reports into "
-        "a beautiful, human-readable Markdown response. \n"
-        "Use bolding, italics, bullet points, and headers to make it easy to read. "
-        "Do not change the factual content, just the presentation.\n\n"
+        "a beautiful, human-readable Markdown response.\n"
+        "Use bolding, italics, bullet points, and headers to make it easy to read.\n"
+        "DEDUPLICATION RULES (apply before formatting):\n"
+        "1. If multiple agents recommend the same specialist referral or action, merge them into a single entry — do not repeat the same recommendation under different headings.\n"
+        "2. If multiple source snippets convey the same fact (e.g. the same sentence from the same or different sources), keep only the first occurrence and drop all subsequent duplicates.\n"
+        "3. Near-identical recommendations that differ only in minor wording should be consolidated into one.\n"
+        "Do not change any factual content beyond deduplication.\n\n"
         f"Raw Reports:\n{raw_outputs}"
     )
     
@@ -605,35 +599,7 @@ def route_decision(state: AgentState):
     valid_routes = [r for r in routes if r in AGENT_REGISTRY][:MAX_CONCURRENT_AGENTS]
     return valid_routes or ["diagnosis"]
 
-workflow = StateGraph(AgentState)
-workflow.add_node("analyze_privacy", node_analyze_privacy)
-workflow.add_node("retrieve_knowledge", node_retrieve_knowledge)
-workflow.add_node("router", node_router)
-workflow.add_node("pubmed", node_pubmed)
-workflow.add_node("diagnosis", node_diagnosis)
-workflow.add_node("report_analyzer", node_report_analyzer)
-workflow.add_node("patient", node_patient)
-workflow.add_node("pharmacology", node_pharmacology)
-workflow.add_node("aggregator", node_aggregator)
-workflow.add_node("reviewer", node_reviewer)       # A2A §5.2 — Model-as-Judge
-workflow.add_node("restore_privacy", node_restore_privacy)
-
-workflow.set_entry_point("analyze_privacy")
-workflow.add_edge("analyze_privacy", "retrieve_knowledge")
-workflow.add_edge("retrieve_knowledge", "router")
-
-workflow.add_conditional_edges("router", route_decision, {k:k for k in AGENT_REGISTRY.keys()})
-
-for agent_key in AGENT_REGISTRY.keys():
-    workflow.add_edge(agent_key, "aggregator")
-
-# A2A §5.2: aggregator → reviewer → restore_privacy
-workflow.add_edge("aggregator", "reviewer")
-workflow.add_edge("reviewer", "restore_privacy")
-workflow.add_edge("restore_privacy", END)
-
-orchestrator_graph = workflow.compile()
-logger.info("Orchestrator Graph Compiled", status="success")
+orchestrator_graph = None
 
 # ==========================================
 # 🗺️ ROUTING CONTEXT HELPER
@@ -672,13 +638,67 @@ from fastapi.middleware.cors import CORSMiddleware
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
+    global medical_engine, privacy_manager, llm, orchestrator_graph
+
+    # ── 1. MedicalReasoningEngine ──────────────────────────────────────
+    logger.info("Importing Local Engines...")
+    if _medical_engine_available:
+        try:
+            logger.info("Initializing MedicalReasoningEngine...")
+            medical_engine = MedicalReasoningEngine()
+            logger.info("MedicalReasoningEngine connected", status="success")
+        except Exception as e:
+            logger.warning("MedicalReasoningEngine unavailable, knowledge retrieval disabled", error=str(e))
+            medical_engine = None
+
+    # ── 2. HIPAA Privacy Layer ─────────────────────────────────────────
+    logger.info("Instantiating PrivacyManager Singleton")
+    privacy_manager = PrivacyManager()
+
+    # ── 3. OpenAI LLM Client (Router / Aggregator) ────────────────────
+    try:
+        logger.info("Initializing OpenAI LLM Client (Router)")
+        llm = ChatOpenAI(
+            model="gpt-4o-mini",
+            temperature=0.0,
+            api_key=settings.OPENAI_API_KEY
+        )
+        logger.info("OpenAI Client Ready", status="success")
+    except Exception as e:
+        logger.error("OpenAI setup failed", error=str(e))
+        llm = None
+
+    # ── 4. LangGraph Workflow ──────────────────────────────────────────
+    workflow = StateGraph(AgentState)
+    workflow.add_node("analyze_privacy", node_analyze_privacy)
+    workflow.add_node("retrieve_knowledge", node_retrieve_knowledge)
+    workflow.add_node("router", node_router)
+    workflow.add_node("pubmed", node_pubmed)
+    workflow.add_node("diagnosis", node_diagnosis)
+    workflow.add_node("report_analyzer", node_report_analyzer)
+    workflow.add_node("patient", node_patient)
+    workflow.add_node("pharmacology", node_pharmacology)
+    workflow.add_node("aggregator", node_aggregator)
+    workflow.add_node("reviewer", node_reviewer)       # A2A §5.2 — Model-as-Judge
+    workflow.add_node("restore_privacy", node_restore_privacy)
+    workflow.set_entry_point("analyze_privacy")
+    workflow.add_edge("analyze_privacy", "retrieve_knowledge")
+    workflow.add_edge("retrieve_knowledge", "router")
+    workflow.add_conditional_edges("router", route_decision, {k: k for k in AGENT_REGISTRY.keys()})
+    for agent_key in AGENT_REGISTRY.keys():
+        workflow.add_edge(agent_key, "aggregator")
+    workflow.add_edge("aggregator", "reviewer")
+    workflow.add_edge("reviewer", "restore_privacy")
+    workflow.add_edge("restore_privacy", END)
+    orchestrator_graph = workflow.compile()
+    logger.info("Orchestrator Graph Compiled", status="success")
+
+    # ── Ready ──────────────────────────────────────────────────────────
     logger.info("Starting Orchestrator Server", app_name=settings.APP_NAME)
-    
-    # DB creation managed externally now
     logger.info("Database Schema Managed externally")
-    
+
     yield
+
     # Shutdown
     logger.info("Shutting down")
 
@@ -936,5 +956,11 @@ async def get_agent_card(agent_name: str):
     return agent.get_card().model_dump()
 
 if __name__ == "__main__":
-    logger.info("Starting Orchestrator Server manually", port=8001)
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    dev = "--dev" in sys.argv or settings.DEBUG
+    logger.info("Starting Orchestrator Server manually", port=8001, reload=dev)
+    uvicorn.run(
+        "orchestrator:app",
+        host="0.0.0.0",
+        port=8001,
+        reload=dev,
+    )

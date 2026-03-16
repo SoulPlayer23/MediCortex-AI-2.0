@@ -14,6 +14,7 @@ The system is built on a **Centralized Orchestration Architecture** with strict 
 -   **Trace ID Propagation**: End-to-end `trace_id` bound to `structlog` context and passed through every `Envelope` (A2A §5.1).
 -   **Agent Card Discovery**: `GET /.well-known/agent-cards` exposes all registered agent cards for A2A discovery.
 -   **Privacy Manager**: Uses Microsoft Presidio to redact PII (PHI) before routing to agents. Real identifiers are restored only at the final `node_restore_privacy` step — never exposed to external LLMs (GPT).
+-   **Lifespan Singleton Initialization**: All heavy singletons (`MedicalReasoningEngine`, `PrivacyManager`, `ChatOpenAI`, compiled `orchestrator_graph`) are initialized inside the FastAPI `lifespan()` context manager — never at module level. This prevents triple-initialization when running under Uvicorn `reload=True` (reloader process + worker both import the module, but only the worker runs `lifespan`).
 -   **Router**: Intelligently routes user queries to specialized agents (capped at 3 concurrent agents per request via A2A §4.1 circuit breaker).
 - **SSE Streaming**: `/chat/stream` endpoint streams agent thoughts and response tokens in real-time. Uses a global `ACTIVE_STREAMS` registry keyed by `session_id` to bypass LangGraph state deep-copy isolation, ensuring thoughts emitted from deep within the ReAct loop reach the client immediately.
 - **Pydantic Aliasing**: Uses `message_metadata` alias in schemas to prevent collision with SQLAlchemy's internal `MetaData` registry when retrieving chat history.

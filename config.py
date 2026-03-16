@@ -24,6 +24,12 @@ class Settings(BaseSettings):
     # MedGemma API (homeserver via Tailscale)
     MEDGEMMA_API_URL: str = "http://localhost:8000/predict"
 
+    # ArangoDB / Knowledge Graph (homeserver via Tailscale)
+    ARANGODB_HOST: str = "http://homeserver:8529"
+    ARANGODB_USERNAME: str = "root"
+    ARANGODB_PASSWORD: str = ""
+    ARANGODB_DB_NAME: str = "clinical_ontology"
+
     # ── Model-as-Judge (A2A §5.2) ─────────────────────────────────────
     GROQ_API_KEY: str = ""
     JUDGE_ENABLED: bool = True

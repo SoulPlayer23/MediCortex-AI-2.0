@@ -33,6 +33,8 @@ npm run build
 npm run lint
 ```
 
+> **Vite HMR limitation (this machine):** File changes written by Claude Code's Edit/Write tools (or via WSL/git-bash) to the Windows `D:` drive do **not** trigger Vite's chokidar watcher (`ReadDirectoryChangesW` events are not fired). A hard browser refresh will serve stale compiled output. After any frontend file change, **restart the dev server manually** (`Ctrl-C` then `npm run dev`) to pick up the change.
+
 ### Testing
 ```bash
 # Run all tests
@@ -74,6 +76,8 @@ node_analyze_privacy      (Presidio redacts 8 PII entity types → placeholders;
 **File Inputs**: `/upload` stores files to MinIO and returns a presigned URL. The frontend sends these as a structured `attachments: [{url, filename, type}]` field in `ChatRequest`. The orchestrator extracts `file_urls` into `AgentState` and injects them into the `report_analyzer` agent's input as `Files to analyze:\n<urls>`. `route_decision` automatically includes `report_analyzer` whenever `file_urls` is non-empty.
 
 **SSE Streaming**: The `/chat/stream` endpoint uses a global `ACTIVE_STREAMS` dict keyed by `session_id`. Agents append to a shared `live_thoughts` list during the ReAct loop; the endpoint polls and yields `thought` events while the LangGraph task runs in the background.
+
+**Singleton Initialization (lifespan pattern)**: All heavy singletons — `MedicalReasoningEngine`, `PrivacyManager`, `ChatOpenAI` LLM client, and the compiled `orchestrator_graph` — are created inside the FastAPI `lifespan()` async context manager, **not** at module level. Module-level declarations are `None` placeholders; `lifespan()` assigns them via `global` and logs each step. This prevents triple-initialization when Uvicorn runs with `reload=True` (main process + StatReload watcher + worker each import the module, but only the worker runs `lifespan`). Node functions reference these globals at call time, so `None` at import is safe.
 
 **Knowledge Core**: `node_retrieve_knowledge` queries ArangoDB (on homeserver via Tailscale VPN) through `MedicalReasoningEngine`. `_aql()` has a 10s timeout; asset load failures are caught at init. `medical_engine` is set to `None` if unavailable, producing empty context without crashing the request.
 
