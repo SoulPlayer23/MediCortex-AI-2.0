@@ -1,6 +1,7 @@
 
 import os
 import sys
+import re
 import random
 import structlog
 from typing import Dict, TypedDict, List, Optional, Tuple, Annotated
@@ -25,7 +26,7 @@ from services.chat_service import chat_service
 from services.minio_service import minio_service
 
 # --- Third Party Imports ---
-from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, BaseMessage
 from langchain_core.runnables.config import RunnableConfig
@@ -168,6 +169,8 @@ class AgentState(TypedDict):
     agent_thoughts: Annotated[List[str], operator.add]
     # Accumulates agent keys that ran this turn (e.g. ["patient", "pharmacology"])
     agents_used: Annotated[List[str], operator.add]
+    # Accumulates {title, url} source dicts from tool observations across all agents
+    agent_sources: Annotated[List[dict], operator.add]
     final_output: str
     judge_score: Optional[int]            # A2A §5.2 — set by node_reviewer
     judge_reason: Optional[str]
@@ -175,6 +178,12 @@ class AgentState(TypedDict):
     error: Optional[str]
     trace_id: Optional[str]
     session_id: Optional[str]
+    # RAG-1 — multi-pass retrieval state
+    retrieval_iteration: int              # 0 = initial pass, 1 = re-retrieval pass (max 1)
+    retrieval_feedback: Annotated[List[dict], operator.add]  # [{agent, refined_query}] from low-context agents
+    retrieval_ambiguous: bool             # True when no entities extracted from query
+    clarification_question: Optional[str] # set by node_router when query is too vague to answer
+    re_retrieval_skipped: bool            # True when re-retrieval KB also returned empty — agent re-run skipped
 
 # ==========================================
 # ⚡ SSE STREAMING SHARED STATE
@@ -184,6 +193,9 @@ ACTIVE_STREAMS = {}
 # ==========================================
 # 🛠️ TOOLS & LLM
 # ==========================================
+_KB_EMPTY_SENTINEL = "No specific knowledge found in graph."
+
+
 @tool
 def consult_medical_knowledge(query: str) -> str:
     """Consults the structured medical knowledge graph."""
@@ -192,9 +204,19 @@ def consult_medical_knowledge(query: str) -> str:
         return "Knowledge Engine Offline."
     results = medical_engine.search_and_reason(query)
     formatted = [f"- {r['name']} ({r['relation']}, Hop: {r.get('hop', '?')})" for r in results]
-    return "\n".join(formatted) if formatted else "No specific knowledge found in graph."
+    return "\n".join(formatted) if formatted else _KB_EMPTY_SENTINEL
+
+
+def _kb_context_is_empty(context_sections: list) -> bool:
+    """Return True if every section in *context_sections* is a KB placeholder (no real data)."""
+    empty_markers = (_KB_EMPTY_SENTINEL, "Knowledge Engine Offline.", "No specific medical knowledge concept found")
+    for section in context_sections:
+        if not any(marker in section for marker in empty_markers):
+            return False
+    return True
 
 llm = None
+extractor_llm = None  # Fast model for entity extraction (reuses Gemma 4 llm instance)
 
 # ==========================================
 # 🕸️ LANGGRAPH NODES
@@ -211,77 +233,190 @@ def node_analyze_privacy(state: AgentState):
         "redacted_input": redacted,
         "pii_mapping": mapping,
         "messages": [HumanMessage(content=redacted)],
-        "agent_outputs": [] 
+        "agent_outputs": [],
+        "agent_sources": [],
     }
 
+def _refine_kb_context(term: str, raw_facts: str) -> str:
+    """Refine raw KB graph facts for a single entity into a structured clinical narrative."""
+    refinement_prompt = (
+        "You are a medical knowledge assistant. I will provide you with raw facts from a "
+        "medical knowledge graph (concepts and their relations). "
+        "Your task is to re-format these facts into a concise, structured narrative "
+        "suitable for a clinical LLM to read. "
+        "Focus on clarity and relationships. Do NOT add any information not present in the facts. "
+        "Do NOT provide a diagnosis.\n\n"
+        "Raw Facts:\n{facts}"
+    )
+    try:
+        if "No specific knowledge found" not in raw_facts:
+            refined = llm.invoke([
+                SystemMessage(content=refinement_prompt.format(facts=raw_facts))
+            ]).content.strip()
+            logger.info("Context Refined", term=term)
+            return f"[KB: {term}]\n{refined}"
+        return f"[KB: {term}]\n{raw_facts}"
+    except Exception as ref_err:
+        logger.warning("Context refinement failed, using raw facts", error=str(ref_err))
+        return f"[KB: {term}]\n{raw_facts}"
+
+
 def node_retrieve_knowledge(state: AgentState):
+    """
+    RAG-1 Part A — Multi-entity KB retrieval.
+
+    Extracts ALL distinct medical entities from the query (not just one) and
+    issues a separate KB lookup for each. Also detects:
+    - Vague queries (0 entities → retrieval_ambiguous=True, triggers clarification)
+    - Topic-shift follow-ups (e.g. "what about side effects?" after a diabetes query)
+      — injects the prior-turn entity as an extra lookup.
+    """
     logger.info("NODE: RETRIEVE KNOWLEDGE")
     user_query = state['redacted_input']
-    
+
     system_prompt = (
         "You are a medical entity extractor. "
-        "Extract the SINGLE most important medical term (disease, symptom, or drug) to search in a knowledge graph. "
-        "Return the result as a JSON object with a single key 'entity'. "
-        "If multiple concepts exist, pick the most specific disease. "
-        "If nothing relevant is found, return null."
-        "\n\nExamples:\n"
-        "User: 'Tell me about Ebola outbreaks' -> {\"entity\": \"Ebola\"}\n"
-        "User: 'Symptoms of Heart Attack' -> {\"entity\": \"Heart Attack\"}\n"
-        "User: 'Patient has high fever' -> {\"entity\": \"Fever\"}"
+        "Extract ALL distinct medical entities (diseases, symptoms, drugs, procedures) from the user's query. "
+        "Return a JSON array of entity strings. Return [] if none found.\n\n"
+        "RULE: Generic anatomical terms alone (heart, back, stomach, head, chest, leg, arm) "
+        "with no qualifying condition are NOT medical entities — return [].\n\n"
+        "Examples:\n"
+        "User: 'interactions between metformin and lisinopril' -> [\"metformin\", \"lisinopril\"]\n"
+        "User: 'symptoms of Heart Attack' -> [\"Heart Attack\"]\n"
+        "User: 'Patient has high fever and diabetes' -> [\"Fever\", \"Diabetes\"]\n"
+        "User: 'my heart feels weird' -> []\n"
+        "User: 'my back hurts' -> []\n"
+        "User: 'I feel sick' -> []\n"
+        "User: 'something feels wrong' -> []\n"
+        "User: 'my stomach' -> []\n"
+        "User: 'I don't feel well' -> []\n"
+        "User: 'heart failure symptoms' -> [\"Heart Failure\"]\n"
+        "User: 'back pain disorder treatment' -> [\"Back Pain Disorder\"]"
     )
-    
+
+    # Generic body parts with no qualifying condition — not actionable medical entities.
+    # Used as a post-extraction filter so GPT-4o-mini over-extraction doesn't bypass
+    # the clarification branch (BUG-2).
+    _GENERIC_ANATOMY = frozenset({
+        "heart", "back", "stomach", "head", "chest", "leg", "arm", "neck",
+        "shoulder", "knee", "hip", "foot", "hand", "eye", "ear", "nose",
+        "throat", "belly", "abdomen", "spine", "skin", "body",
+    })
+
+    entities = []
+    retrieval_ambiguous = False
     try:
-        response = llm.invoke([
+        _extr = extractor_llm or llm
+        response = _extr.invoke([
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_query)
         ]).content.strip()
-        
-        # Parse JSON
         clean_response = response.replace("```json", "").replace("```", "").strip()
-        data = json.loads(clean_response)
-        if not data:
-            search_term = None
-        else:
-            search_term = data.get("entity")
-        
-        if search_term and search_term.lower() != "none":
-            logger.info("Extracted Search Term", term=search_term)
-            raw_facts = consult_medical_knowledge.invoke(search_term)
-            
-            # ── Context Refinement (GPT-4o-mini) ──
-            # We use GPT to "clean up" raw graph data into a coherent medical narrative
-            # so that MedGemma receives structured, easy-to-parse context.
-            refinement_prompt = (
-                "You are a medical knowledge assistant. I will provide you with raw facts from a "
-                "medical knowledge graph (concepts and their relations). "
-                "Your task is to re-format these facts into a concise, structured narrative "
-                "suitable for a clinical LLM to read. "
-                "Focus on clarity and relationships. Do NOT add any information not present in the facts. "
-                "Do NOT provide a diagnosis.\n\n"
-                "Raw Facts:\n{facts}"
-            )
-            try:
-                if "No specific knowledge found" not in raw_facts:
-                    refined_response = llm.invoke([
-                        SystemMessage(content=refinement_prompt.format(facts=raw_facts))
-                    ]).content.strip()
-                    graph_context = f"Structured Knowledge for '{search_term}':\n{refined_response}"
-                    logger.info("Context Refined", term=search_term)
-                else:
-                    graph_context = raw_facts
-            except Exception as ref_err:
-                logger.warning("Context refinement failed, using raw facts", error=str(ref_err))
-                graph_context = raw_facts
-        else:
-            logger.info("No specific medical entity found to search")
-            graph_context = "No specific medical knowledge concept found in query."
-            
+        parsed = json.loads(clean_response)
+        if isinstance(parsed, list):
+            entities = [e for e in parsed if e and str(e).lower() not in ("none", "null")]
     except Exception as e:
-        logger.error("Entity extraction failed", error=str(e))
-        graph_context = "Error retrieving knowledge."
+        logger.error("Multi-entity extraction failed", error=str(e))
+
+    # Post-extraction filter: if every extracted entity is a single generic anatomical
+    # term (no qualifier like "failure", "cancer", "pain disorder"), treat as ambiguous.
+    if entities and all(e.strip().lower() in _GENERIC_ANATOMY for e in entities):
+        logger.info("All extracted entities are generic anatomy — treating as ambiguous", entities=entities)
+        entities = []
+
+    # Topic-shift detection: if 0 entities extracted but routing_context has prior agents,
+    # check whether the query implies a follow-up (vague references like "side effects",
+    # "what about", "tell me more") and inject the most recent KB entity from history.
+    routing_context = state.get("routing_context") or ""
+    if not entities and routing_context:
+        followup_indicators = ("side effect", "what about", "tell me more", "more about",
+                               "also", "and what", "interactions", "dosage", "risk")
+        query_lower = user_query.lower()
+        if any(indicator in query_lower for indicator in followup_indicators):
+            # Extract most recent entity from prior KB context if available
+            prior_context = state.get("context", [])
+            for ctx in reversed(prior_context):
+                import re as _re
+                m = _re.search(r'\[KB:\s*([^\]]+)\]', ctx)
+                if m:
+                    entities = [m.group(1).strip()]
+                    logger.info("Topic-shift detected, injecting prior entity", entity=entities[0])
+                    break
+
+    if not entities:
+        retrieval_ambiguous = True
+        logger.info("No medical entities found — query is ambiguous")
+        return {
+            "context": ["No specific medical knowledge concept found in query."],
+            "retrieval_ambiguous": True,
+            "retrieval_iteration": state.get("retrieval_iteration", 0),
+            "retrieval_feedback": [],
+        }
+
+    context_sections = []
+    session_id = state.get("session_id")
+    for term in entities:
+        logger.info("KB lookup", term=term)
+        if session_id and session_id in ACTIVE_STREAMS:
+            ACTIVE_STREAMS[session_id].append(f"Querying Knowledge Core: **{term}**")
+        raw_facts = consult_medical_knowledge.invoke(term)
+        context_sections.append(_refine_kb_context(term, raw_facts))
 
     return {
-        "context": [graph_context],
+        "context": context_sections,
+        "retrieval_ambiguous": retrieval_ambiguous,
+        "retrieval_iteration": state.get("retrieval_iteration", 0),
+        "retrieval_feedback": [],
+    }
+
+
+def node_retrieve_knowledge_v2(state: AgentState):
+    """
+    RAG-1 Part B — Reactive re-retrieval using agent-supplied refined queries.
+
+    Called when at least one agent flagged low_context=True. Uses the refined_query
+    from the first flagging agent instead of extracting entities from the original query.
+    Appends new context sections without replacing existing ones.
+    """
+    logger.info("NODE: RETRIEVE KNOWLEDGE V2 (re-retrieval)")
+    feedback = state.get("retrieval_feedback", [])
+    if not feedback:
+        return {"retrieval_iteration": state.get("retrieval_iteration", 0) + 1}
+
+    new_sections = []
+    seen_terms = set()
+    session_id = state.get("session_id")
+    for fb in feedback:
+        term = fb.get("refined_query")
+        if not term or term in seen_terms:
+            continue
+        seen_terms.add(term)
+        logger.info("Re-retrieval KB lookup", term=term, agent=fb.get("agent"))
+        if session_id and session_id in ACTIVE_STREAMS:
+            ACTIVE_STREAMS[session_id].append(f"Re-querying Knowledge Core: **{term}**")
+        raw_facts = consult_medical_knowledge.invoke(term)
+        new_sections.append(_refine_kb_context(term, raw_facts))
+
+    # If every re-retrieved section is also a placeholder, the KB genuinely has
+    # no data for this query.  Skipping the agent re-run avoids passing a
+    # "No specific knowledge found" context string into MedGemma's synthesis
+    # prompt — which is the root cause of the repetition loop (BUG-1).
+    if _kb_context_is_empty(new_sections):
+        logger.warning(
+            "Re-retrieval KB lookup also returned empty — skipping agent re-run",
+            terms=list(seen_terms),
+        )
+        return {
+            "retrieval_iteration": state.get("retrieval_iteration", 0) + 1,
+            "re_retrieval_skipped": True,
+        }
+
+    # Append new context (preserves original context sections)
+    existing_context = state.get("context", [])
+    return {
+        "context": existing_context + new_sections,
+        "retrieval_iteration": state.get("retrieval_iteration", 0) + 1,
+        "re_retrieval_skipped": False,
     }
 
 def node_router(state: AgentState):
@@ -347,6 +482,34 @@ def node_router(state: AgentState):
         routes = ["diagnosis"]
         
     logger.info("Routing to agents", routes=routes)
+
+    # Clarification check: if the KB retrieval found no entities (query is vague/ambiguous)
+    # AND the previous turn was NOT already a clarification, ask the user to elaborate.
+    # We suppress a second clarification by checking routing_context for "AI asked for clarification".
+    already_clarified = "AI asked for clarification" in routing_context
+    if state.get("retrieval_ambiguous") and not already_clarified:
+        clarification_prompt = (
+            "The user's medical query is ambiguous — no specific medical entities could be identified. "
+            "Generate ONE short, empathetic clarifying question to ask the user so you can give a "
+            "more accurate answer. Maximum 30 words. Examples:\n"
+            "- 'Could you describe the sensation in more detail — is it a sharp pain, pressure, or palpitations?'\n"
+            "- 'Are you asking about a specific condition or would you like general information?'\n"
+            "- 'Which medication or condition are you referring to?'\n"
+            "Output only the question, no preamble."
+        )
+        try:
+            clarification_q = llm.invoke([
+                SystemMessage(content=clarification_prompt),
+                HumanMessage(content=f"User query: {input_text}"),
+            ]).content.strip()
+            logger.info("Clarification question generated", question=clarification_q)
+            return {
+                "messages": [AIMessage(content='["__clarify__"]')],
+                "clarification_question": clarification_q,
+            }
+        except Exception as e:
+            logger.warning("Clarification generation failed, proceeding with routing", error=str(e))
+
     return {"messages": [AIMessage(content=str(routes))]}
 
 def make_agent_node(agent_key: str):
@@ -356,7 +519,16 @@ def make_agent_node(agent_key: str):
         if not agent_executor:
             return {"agent_outputs": [f"Error: Agent '{agent_key}' not found."]}
         
-        context_str = "\n".join(state.get("context", []))
+        # Strip KB placeholder sections before passing context to the agent.
+        # MedGemma's synthesis prompt must never contain "No specific knowledge found"
+        # strings — they cause it to fill the Clinical Profile template with a default
+        # sentence that then repeats in a loop (BUG-1 root cause).
+        _empty_markers = (_KB_EMPTY_SENTINEL, "Knowledge Engine Offline.", "No specific medical knowledge concept found")
+        meaningful_sections = [
+            s for s in state.get("context", [])
+            if not any(marker in s for marker in _empty_markers)
+        ]
+        context_str = "\n".join(meaningful_sections)
         raw_history_str = "\n".join(state.get("history", []))
 
         # HIPAA: Re-redact conversation history before injecting into any LLM prompt.
@@ -371,8 +543,8 @@ def make_agent_node(agent_key: str):
 
         enhanced_input = (
             f"Conversation History:\n{history_str}\n\n"
-            f"Current Request: {state['redacted_input']}\n\n"
-            f"Context from Knowledge Core:\n{context_str}"
+            f"Current Request: {state['redacted_input']}"
+            + (f"\n\nContext from Knowledge Core:\n{context_str}" if context_str else "")
         )
 
         # Inject file URLs for the report agent so its tools can download and analyze them
@@ -408,24 +580,34 @@ def make_agent_node(agent_key: str):
             # Call Agent via Process
             response = agent_executor.process(envelope)
             
-            # Capture thinking steps
+            # Capture thinking steps (already prefixed by emit_thought in base.py)
             thoughts = response.thinking if response.thinking else []
-            formatted_thoughts = [f"**[{agent_key.title()}]**: {t}" for t in thoughts]
-            
+
             if response.error:
                 logger.error(f"Agent {agent_key} returned error", error=response.error)
                 return {
                     "agent_outputs": [f"## {agent_key.title()} Agent Error\n{response.error}"],
-                    "agent_thoughts": formatted_thoughts,
+                    "agent_thoughts": thoughts,
                     "agents_used": [agent_key],
                 }
 
             output = response.output if response.output else "No output generated."
-            return {
+            result: dict = {
                 "agent_outputs": [f"## {agent_key.title()} Agent Response\n{output}"],
-                "agent_thoughts": formatted_thoughts,
+                "agent_thoughts": thoughts,
                 "agents_used": [agent_key],
+                "agent_sources": response.sources if response.sources else [],
             }
+
+            # RAG-1 Part B: propagate low-context signal for reactive re-retrieval
+            if response.low_context:
+                logger.info(f"Agent {agent_key} flagged low_context", refined_query=response.refined_query)
+                result["retrieval_feedback"] = [{
+                    "agent": agent_key,
+                    "refined_query": response.refined_query,
+                }]
+
+            return result
             
         except Exception as e:
             logger.error(f"Orchestrator failed to call agent {agent_key}", error=str(e))
@@ -442,10 +624,99 @@ node_report_analyzer = make_agent_node("report_analyzer")
 node_patient = make_agent_node("patient")
 node_pharmacology = make_agent_node("pharmacology")
 
-def node_aggregator(state: AgentState):
+
+def node_ask_clarification(state: AgentState):
+    """
+    User Clarification node — early-exit path for ambiguous queries.
+
+    Emits the clarification question as the final_output and routes to
+    restore_privacy → END, bypassing agents, aggregator, and reviewer.
+    The question is a normal assistant message; the user replies in the next
+    turn, and the pipeline picks up context from DB history naturally.
+    """
+    logger.info("NODE: ASK CLARIFICATION")
+    question = state.get("clarification_question") or "Could you provide more details about your question?"
+    return {
+        "final_output": question,
+        "agents_used": ["clarification"],
+    }
+
+
+def node_aggregator_with_reretrieval(state: AgentState):
+    """
+    RAG-1 Part B — Reactive re-retrieval wrapper around node_aggregator.
+
+    If any agents flagged low_context=True and we haven't re-retrieved yet,
+    perform an inline re-retrieval pass and re-run the flagging agents before
+    aggregating. This avoids complex LangGraph fan-out rewiring.
+    """
     logger.info("NODE: AGGREGATOR")
-    raw_outputs = "\n\n".join(state["agent_outputs"])
-    
+
+    # RAG-1 Part B: check for re-retrieval before aggregating
+    feedback = state.get("retrieval_feedback", [])
+    iteration = state.get("retrieval_iteration", 0)
+
+    extra_outputs: list = []
+    if feedback and iteration < 1:
+        logger.info("Reactive re-retrieval triggered", feedback=feedback)
+        reretrieval_result = node_retrieve_knowledge_v2(state)
+
+        # If re-retrieval found no new KB data, skip the agent re-run entirely.
+        # Passing an empty KB context string into MedGemma's synthesis prompt
+        # is the root cause of the repetition loop (BUG-1): MedGemma fills its
+        # Clinical Profile template with a default sentence and repeats it.
+        if reretrieval_result.get("re_retrieval_skipped"):
+            logger.info("Agent re-run skipped — re-retrieval returned no new KB data")
+        else:
+            new_context = reretrieval_result.get("context", state.get("context", []))
+
+            # Strip placeholder sections so MedGemma never receives "No specific
+            # knowledge found in graph." as part of the synthesis context.
+            empty_markers = (_KB_EMPTY_SENTINEL, "Knowledge Engine Offline.", "No specific medical knowledge concept found")
+            meaningful_context = [
+                s for s in new_context
+                if not any(marker in s for marker in empty_markers)
+            ]
+
+            re_run_keys = list({fb["agent"] for fb in feedback if fb.get("agent") in AGENT_REGISTRY})
+            for agent_key in re_run_keys:
+                agent_executor = AGENT_REGISTRY.get(agent_key)
+                if not agent_executor:
+                    continue
+                context_str = "\n".join(meaningful_context)
+                raw_history_str = "\n".join(state.get("history", []))
+                history_str = privacy_manager.redact_identifying_pii(raw_history_str) if raw_history_str else ""
+                enhanced_input = (
+                    f"Conversation History:\n{history_str}\n\n"
+                    f"Current Request: {state['redacted_input']}"
+                    + (f"\n\nContext from Knowledge Core (enriched):\n{context_str}" if context_str else "")
+                )
+                envelope = Envelope(
+                    trace_id=state.get("trace_id", ""),
+                    sender_id="orchestrator",
+                    receiver_id=agent_key,
+                    payload={"input": enhanced_input},
+                )
+                if agent_key == "patient":
+                    import json as _json
+                    envelope.payload["pii_mapping_json"] = _json.dumps(state.get("pii_mapping", {}))
+                if agent_key == "diagnosis":
+                    envelope.payload["knowledge_context"] = context_str
+                session_id_str = state.get("session_id", "default")
+                envelope.payload["live_thoughts_queue"] = ACTIVE_STREAMS.get(session_id_str, [])
+                try:
+                    response = agent_executor.process(envelope)
+                    if response.output and not response.error:
+                        extra_outputs.append(
+                            f"## {agent_key.title()} Agent Response (re-retrieved)\n{response.output}"
+                        )
+                        logger.info(f"Re-run agent {agent_key} succeeded after re-retrieval")
+                except Exception as e:
+                    logger.warning(f"Re-run agent {agent_key} failed after re-retrieval", error=str(e))
+
+    # Proceed with standard aggregation (original outputs + any re-retrieved outputs)
+    raw_outputs = "\n\n".join(state["agent_outputs"] + extra_outputs)
+
     formatting_prompt = (
         "You are the MediCortex Interface. Format the following medical agent reports into "
         "a beautiful, human-readable Markdown response.\n"
@@ -455,15 +726,49 @@ def node_aggregator(state: AgentState):
         "2. If multiple source snippets convey the same fact (e.g. the same sentence from the same or different sources), keep only the first occurrence and drop all subsequent duplicates.\n"
         "3. Near-identical recommendations that differ only in minor wording should be consolidated into one.\n"
         "Do not change any factual content beyond deduplication.\n\n"
+        "HEADING RULES:\n"
+        "- Do NOT open the response with a generic heading like 'Medical Agent Reports', "
+        "'Medical Agent Reports on [Topic]', 'Medical Agent Reports Summary', or any similar variation.\n"
+        "- If a heading is needed, use a concise topic-specific heading (e.g. 'Hypertension: Symptoms & First-Line Treatment'). "
+        "For shorter responses, omit the heading entirely.\n"
+        "- The response must read as expert clinical guidance, not as an internal pipeline report.\n\n"
+        "CITATION RULES (only apply if the raw reports contain URLs):\n"
+        "- If the raw reports contain source URLs, add inline citation numbers like [1], [2] at the end of each sentence or claim that is supported by a source.\n"
+        "- Collect all unique cited URLs and append a '## References' section at the very end of the response, formatted as a numbered markdown list: '1. [Title](url)'\n"
+        "- Each number must correspond to exactly one unique URL. Do not assign the same number to two different URLs.\n"
+        "- If the raw reports contain NO URLs at all, do NOT add a References section and do NOT add any inline citation numbers.\n\n"
         f"Raw Reports:\n{raw_outputs}"
     )
-    
+
     try:
         formatted = llm.invoke([HumanMessage(content=formatting_prompt)]).content
     except Exception:
-        formatted = raw_outputs 
-        
+        formatted = raw_outputs
+
     return {"final_output": formatted}
+
+
+def _parse_references(text: str) -> tuple[str, list[dict]]:
+    """
+    Split the aggregator's final_output into (body, sources).
+
+    Looks for a '## References' section at the end of the response and extracts
+    numbered markdown links from it. Returns the body without the References section
+    and a list of {title, url} dicts. If no References section is present (i.e. the
+    response had no source URLs), returns the original text and an empty list.
+    """
+    marker = "\n## References"
+    idx = text.find(marker)
+    if idx == -1:
+        return text, []
+    body = text[:idx].rstrip()
+    ref_block = text[idx + len(marker):]
+    sources = []
+    for m in re.finditer(r'\d+\.\s+\[([^\]]+)\]\((https?://[^\s\)]+)\)', ref_block):
+        sources.append({"title": m.group(1), "url": m.group(2)})
+    # If the section existed but GPT produced no parseable links, return body only
+    return body, sources
+
 
 def node_reviewer(state: AgentState):
     """
@@ -580,13 +885,22 @@ def node_restore_privacy(state: AgentState):
 MAX_CONCURRENT_AGENTS = 3
 
 def route_decision(state: AgentState):
+    last_msg = state["messages"][-1].content
+
+    # Clarification early-exit: router set this when query was too vague
+    try:
+        parsed = json.loads(last_msg.replace("'", '"'))
+        if isinstance(parsed, list) and parsed == ["__clarify__"]:
+            return ["__clarify__"]
+    except Exception:
+        pass
+
     routes = []
 
     # Always route to report_analyzer if files were attached (A2A §4.1)
     if state.get("file_urls"):
         routes.append("report_analyzer")
 
-    last_msg = state["messages"][-1].content
     try:
         llm_routes = json.loads(last_msg.replace("'", '"'))
         for r in llm_routes:
@@ -626,9 +940,13 @@ def _build_routing_context(past_turns) -> str:
             redacted_q = privacy_manager.redact_identifying_pii(msg.content[:150])
             lines.append(f"User asked: {redacted_q}")
         elif msg.role == "assistant":
-            agents = (msg.message_metadata or {}).get("agents_used", [])
-            agents_str = ", ".join(agents) if agents else "unknown"
-            lines.append(f"Routed to: [{agents_str}]")
+            meta = msg.message_metadata or {}
+            if meta.get("is_clarification"):
+                lines.append("AI asked for clarification")
+            else:
+                agents = meta.get("agents_used", [])
+                agents_str = ", ".join(agents) if agents else "unknown"
+                lines.append(f"Routed to: [{agents_str}]")
     return "\n".join(lines)
 
 # ==========================================
@@ -638,7 +956,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global medical_engine, privacy_manager, llm, orchestrator_graph
+    global medical_engine, privacy_manager, llm, extractor_llm, orchestrator_graph
 
     # ── 1. MedicalReasoningEngine ──────────────────────────────────────
     logger.info("Importing Local Engines...")
@@ -655,18 +973,42 @@ async def lifespan(app: FastAPI):
     logger.info("Instantiating PrivacyManager Singleton")
     privacy_manager = PrivacyManager()
 
-    # ── 3. OpenAI LLM Client (Router / Aggregator) ────────────────────
+    # ── 3. Gemma 4 via Ollama Cloud (Router / Aggregator / Extractor) ────
+    # Replaces GPT-4o-mini everywhere. A warmup call is issued at startup
+    # so the first user request is served from a hot model.
     try:
-        logger.info("Initializing OpenAI LLM Client (Router)")
-        llm = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0.0,
-            api_key=settings.OPENAI_API_KEY
+        _ollama_base = settings.OLLAMA_CLOUD_URL.removesuffix("/v1")
+        logger.info("Initializing Gemma 4 LLM Client (ChatOllama)", model=settings.OLLAMA_CLOUD_MODEL, base_url=_ollama_base)
+        llm = ChatOllama(
+            model=settings.OLLAMA_CLOUD_MODEL,
+            temperature=1.0,
+            top_p=0.95,
+            top_k=64,
+            base_url=_ollama_base,
         )
-        logger.info("OpenAI Client Ready", status="success")
+        logger.info("Gemma 4 Client Ready — warming up model (first request may load model)")
+        # Warmup call: fires asynchronously so startup doesn't block.
+        # Runs as a background asyncio task — completes before first user message arrives
+        # if startup took ≥ 5 minutes (typical Ollama Cloud cold-start for 31B).
+        import asyncio as _asyncio
+        from langchain_core.messages import HumanMessage as _WarmupMsg
+        async def _warmup():
+            try:
+                await _asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: llm.invoke([_WarmupMsg(content="ping")])
+                )
+                logger.info("Gemma 4 warmup complete — model is hot")
+            except Exception as _we:
+                logger.warning("Gemma 4 warmup failed (model may still be loading)", error=str(_we))
+        _asyncio.create_task(_warmup())
+        logger.info("Gemma 4 LLM Ready (ChatOllama)", model=settings.OLLAMA_CLOUD_MODEL, base_url=_ollama_base, status="success")
     except Exception as e:
-        logger.error("OpenAI setup failed", error=str(e))
+        logger.error("Gemma 4 Ollama Cloud setup failed", error=str(e))
         llm = None
+
+    # extractor_llm reuses the same Gemma 4 instance for entity extraction
+    extractor_llm = llm
 
     # ── 4. LangGraph Workflow ──────────────────────────────────────────
     workflow = StateGraph(AgentState)
@@ -678,15 +1020,20 @@ async def lifespan(app: FastAPI):
     workflow.add_node("report_analyzer", node_report_analyzer)
     workflow.add_node("patient", node_patient)
     workflow.add_node("pharmacology", node_pharmacology)
-    workflow.add_node("aggregator", node_aggregator)
+    workflow.add_node("ask_clarification", node_ask_clarification)        # clarification early-exit
+    workflow.add_node("aggregator", node_aggregator_with_reretrieval)     # RAG-1 Part B inline
     workflow.add_node("reviewer", node_reviewer)       # A2A §5.2 — Model-as-Judge
     workflow.add_node("restore_privacy", node_restore_privacy)
     workflow.set_entry_point("analyze_privacy")
     workflow.add_edge("analyze_privacy", "retrieve_knowledge")
     workflow.add_edge("retrieve_knowledge", "router")
-    workflow.add_conditional_edges("router", route_decision, {k: k for k in AGENT_REGISTRY.keys()})
+    workflow.add_conditional_edges("router", route_decision, {
+        **{k: k for k in AGENT_REGISTRY.keys()},
+        "__clarify__": "ask_clarification",
+    })
     for agent_key in AGENT_REGISTRY.keys():
         workflow.add_edge(agent_key, "aggregator")
+    workflow.add_edge("ask_clarification", "restore_privacy")  # skip aggregator/reviewer
     workflow.add_edge("aggregator", "reviewer")
     workflow.add_edge("reviewer", "restore_privacy")
     workflow.add_edge("restore_privacy", END)
@@ -751,15 +1098,14 @@ async def chat_stream_endpoint(request: ChatRequest, db: AsyncSession = Depends(
             agent_thoughts = []
             final_output = ""
             msg_metadata = {
-                "llm_used": "MedGemma (via HF) / OpenAI Router",
+                "llm_used": "MedGemma (via HF) / Gemma 4 Router",
                 "judge_score": None,
                 "judge_reason": None,
                 "judge_confidence": None,
                 "agents_used": [],
             }
 
-            # Emit initial "thinking" state to show immediate activity
-            yield f"data: {json.dumps({'type': 'thought', 'content': 'Querying Knowledge Core...'})}\n\n"
+
 
             import asyncio
 
@@ -781,6 +1127,12 @@ async def chat_stream_endpoint(request: ChatRequest, db: AsyncSession = Depends(
                             "agents_used": [],
                             "file_urls": file_urls,
                             "session_id": str(session_id),
+                            # RAG-1 initial state
+                            "retrieval_iteration": 0,
+                            "retrieval_feedback": [],
+                            "retrieval_ambiguous": False,
+                            "clarification_question": None,
+                            "re_retrieval_skipped": False,
                         }
                     )
                     final_output_container["result"] = result
@@ -824,11 +1176,35 @@ async def chat_stream_endpoint(request: ChatRequest, db: AsyncSession = Depends(
             # Capture which agents ran so future turns can use this for routing
             msg_metadata["agents_used"] = list(dict.fromkeys(graph_output.get("agents_used", [])))
 
+            # RAG-1 auditability fields
+            msg_metadata["retrieval_iterations"] = graph_output.get("retrieval_iteration", 0)
+            msg_metadata["retrieval_feedback"] = graph_output.get("retrieval_feedback", [])
+            msg_metadata["retrieval_ambiguous"] = graph_output.get("retrieval_ambiguous", False)
+            msg_metadata["is_clarification"] = bool(graph_output.get("clarification_question"))
+
+            # Extract references section (only present when agents cited source URLs inline)
+            # and merge with tool-observation URLs collected during agent ReAct loops.
+            tool_sources: List[dict] = graph_output.get("agent_sources", [])
+            if graph_final:
+                clean_body, inline_sources = _parse_references(graph_final)
+                final_output = clean_body
+                # Merge inline citations + tool observation URLs, dedup by URL
+                def _norm_url(u: str) -> str:
+                    return u.rstrip("/").lower()
+
+                all_sources = inline_sources[:]
+                seen = {_norm_url(s["url"]) for s in inline_sources}
+                for s in tool_sources:
+                    if _norm_url(s["url"]) not in seen:
+                        seen.add(_norm_url(s["url"]))
+                        all_sources.append(s)
+                if all_sources:
+                    msg_metadata["sources"] = all_sources
+
             yield f"data: {json.dumps({'type': 'metadata', 'content': msg_metadata})}\n\n"
 
-            if graph_final:
-                 final_output = graph_final
-                 yield f"data: {json.dumps({'type': 'response', 'content': final_output})}\n\n"
+            if final_output:
+                yield f"data: {json.dumps({'type': 'response', 'content': final_output})}\n\n"
 
             # 5. Save AI Response to DB (only once)
             if final_output:
@@ -884,17 +1260,25 @@ async def chat_endpoint(request: ChatRequest, db: AsyncSession = Depends(get_db)
             "agents_used": [],
             "file_urls": file_urls,
             "session_id": str(session_id),
+            "retrieval_iteration": 0,
+            "retrieval_feedback": [],
+            "retrieval_ambiguous": False,
+            "clarification_question": None,
+            "re_retrieval_skipped": False,
         })
         response_text = result.get("final_output")
         agent_thinking = result.get("agent_thoughts", [])
 
         msg_metadata = {
-            "llm_used": "MedGemma (via HF) / OpenAI Router",
+            "llm_used": "MedGemma (via HF) / Gemma 4 Router",
             "judge_score": result.get("judge_score"),
             "judge_reason": result.get("judge_reason"),
             "judge_confidence": result.get("judge_confidence"),
-            # Capture which agents ran so future turns can use this for routing
             "agents_used": list(dict.fromkeys(result.get("agents_used", []))),
+            "retrieval_iterations": result.get("retrieval_iteration", 0),
+            "retrieval_feedback": result.get("retrieval_feedback", []),
+            "retrieval_ambiguous": result.get("retrieval_ambiguous", False),
+            "is_clarification": bool(result.get("clarification_question")),
         }
 
         # 5. Save AI Response

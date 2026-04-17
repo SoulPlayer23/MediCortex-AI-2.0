@@ -66,65 +66,57 @@ class MedicalReasoningEngine:
         res = self._aql(aql, {"id": node_id})
         return res[0] if res else None
 
-    def resolve_entity(self, user_query):
+    def _resolve_candidates(self, user_query):
         """
-        Smart Entity Linking: Synonyms -> Exact Match -> Fuzzy Match
+        Return a list of candidate concept nodes in priority order:
+        synonym hit → exact match → fuzzy match.
+        Callers iterate until they find one with graph neighbors.
         """
+        candidates = []
         query_lower = user_query.lower()
-        
-        # STRATEGY 1: Synonym Lookup
-        if query_lower in self.synonym_map:
-            concept_id = self.synonym_map[query_lower]
-            node = self.fetch_node_by_id(concept_id)
-            if node:
-                print(f"   ✨ Synonym Hit: '{user_query}' mapped to '{node['name']}' (ID: {node['_key']})")
-                return node
 
-        # STRATEGY 2: Exact Match
-        aql_exact = """
-        FOR d IN concepts
-          FILTER d.name == @q
-          LIMIT 1
-          RETURN d
-        """
+        # Candidate 1: synonym traversal
+        if query_lower in self.synonym_map:
+            syn_id = self.synonym_map[query_lower]
+            aql_syn = """
+            FOR r IN synonym_relations
+              FILTER r._from == CONCAT('synonyms/', @syn_id)
+              LIMIT 1
+              RETURN DOCUMENT(r._to)
+            """
+            res = self._aql(aql_syn, {"syn_id": syn_id})
+            if res and res[0]:
+                candidates.append(("synonym", res[0]))
+
+        # Candidate 2: exact name match
+        aql_exact = "FOR d IN concepts FILTER d.name == @q LIMIT 1 RETURN d"
         res = self._aql(aql_exact, {"q": user_query})
         if res:
-             print(f"   📍 Exact Match: '{res[0]['name']}' (ID: {res[0]['_key']})")
-             return res[0]
+            candidates.append(("exact", res[0]))
 
-        # STRATEGY 3: Fuzzy / Starts With
+        # Candidate 3: case-insensitive exact match
+        aql_iexact = "FOR d IN concepts FILTER LOWER(d.name) == @q LIMIT 1 RETURN d"
+        res = self._aql(aql_iexact, {"q": query_lower})
+        if res:
+            candidates.append(("iexact", res[0]))
+
+        # Candidate 4: fuzzy / starts-with
         aql_fuzzy = """
         FOR d IN concepts
           FILTER LIKE(d.name, CONCAT(@q, "%"), true)
-          SORT LENGTH(d.name) ASC // Prefer shorter names
+          SORT LENGTH(d.name) ASC
           LIMIT 1
           RETURN d
         """
         res = self._aql(aql_fuzzy, {"q": user_query})
         if res:
-            print(f"   🔍 Fuzzy Match: '{res[0]['name']}' (ID: {res[0]['_key']})")
-            return res[0]
+            candidates.append(("fuzzy", res[0]))
 
-        return None
+        return candidates
 
     def search_and_reason(self, user_query, top_k=10):
         print(f"\n🔎 Query: '{user_query}'")
-        
-        # 1. Entity Linking
-        anchor = self.resolve_entity(user_query)
-        if not anchor:
-            print("❌ Concept not found.")
-            return []
 
-        # Get Vector
-        anchor_vec = None
-        if anchor['_key'] in self.key_to_idx and self.embeddings is not None:
-            idx = self.key_to_idx[anchor['_key']]
-            anchor_vec = self.embeddings[idx].reshape(1, -1)
-        else:
-            print("   ⚠️ Warning: Anchor not in embedding matrix. Ranking disabled.")
-
-        # 2. Graph Traversal
         aql_traverse = """
         FOR v, e, p IN 1..2 ANY @startId concept_relations
           LIMIT 20
@@ -135,12 +127,37 @@ class MedicalReasoningEngine:
             hop: LENGTH(p.edges)
           }
         """
-        start_id = f"concepts/{anchor['_key']}"
-        facts = self._aql(aql_traverse, {"startId": start_id})
-        
-        if not facts:
-            print("   ⚠️ No neighbors found. (Isolate Node)")
+
+        # 1. Entity Linking — try each candidate until one has graph neighbors
+        anchor = None
+        facts = []
+        candidates = self._resolve_candidates(user_query)
+        if not candidates:
+            print("❌ Concept not found.")
             return []
+
+        for strategy, node in candidates:
+            start_id = f"concepts/{node['_key']}"
+            candidate_facts = self._aql(aql_traverse, {"startId": start_id})
+            if candidate_facts:
+                anchor = node
+                facts = candidate_facts
+                print(f"   ✅ {strategy}: '{node['name']}' (ID: {node['_key']})")
+                break
+            else:
+                print(f"   ⚠️ {strategy}: '{node['name']}' is an isolate — trying next candidate")
+
+        if not anchor:
+            print("   ⚠️ All candidates are isolate nodes — no graph facts available.")
+            return []
+
+        # 2b. Get embedding vector for cosine ranking
+        anchor_vec = None
+        if anchor['_key'] in self.key_to_idx and self.embeddings is not None:
+            idx = self.key_to_idx[anchor['_key']]
+            anchor_vec = self.embeddings[idx].reshape(1, -1)
+        else:
+            print("   ⚠️ Anchor not in embedding matrix. Ranking disabled.")
 
         # 3. Reference Ranking
         print(f"   🧠 Reasoning on {len(facts)} retrieved facts...")

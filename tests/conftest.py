@@ -151,4 +151,6 @@ def mock_medical_page_html():
 @pytest.fixture(autouse=True)
 def _set_test_env(monkeypatch):
     """Set environment variables for testing."""
-    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-real")
+    monkeypatch.setenv("OLLAMA_CLOUD_URL", "http://homeserver:11434/v1")
+    monkeypatch.setenv("OLLAMA_CLOUD_API_KEY", "ollama")
+    monkeypatch.setenv("OLLAMA_CLOUD_MODEL", "gemma4:e2b")

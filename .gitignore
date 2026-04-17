@@ -24,6 +24,12 @@ token.json
 # Knowledge Core — generated assets (large binary files, rebuild locally)
 knowledge_core/assets/
 
+# Logs
+*.log
+
+# Ollama API key files
+Ollama\ API\ Key*.txt
+
 # Antigravity templates
 directives/
 execution/

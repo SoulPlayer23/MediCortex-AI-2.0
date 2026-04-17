@@ -11,7 +11,21 @@ interface SidebarProps {
 interface ChatSession {
     id: string;
     title: string;
+    preview: string;
     updated_at: string;
+}
+
+function stripMarkdown(text: string): string {
+    return text
+        .replace(/^#{1,6}\s+/gm, '')       // headings: ## Title → Title
+        .replace(/\*\*(.+?)\*\*/g, '$1')   // bold: **x** → x
+        .replace(/\*(.+?)\*/g, '$1')       // italic: *x* → x
+        .replace(/__(.+?)__/g, '$1')       // bold: __x__ → x
+        .replace(/_(.+?)_/g, '$1')         // italic: _x_ → x
+        .replace(/`(.+?)`/g, '$1')         // inline code: `x` → x
+        .replace(/^>\s+/gm, '')            // blockquotes
+        .replace(/^[-*+]\s+/gm, '')        // list items
+        .trim();
 }
 
 const Sidebar = ({ isOpen, toggleSidebar, onSelectChat, currentSessionId }: SidebarProps) => {
@@ -105,11 +119,15 @@ const Sidebar = ({ isOpen, toggleSidebar, onSelectChat, currentSessionId }: Side
                         <button
                             key={session.id}
                             onClick={() => onSelectChat(session.id)}
-                            className={`flex items-center gap-2.5 px-3 py-2.5 w-full rounded-lg hover:bg-zinc-800/50 transition-all text-sm text-zinc-300 group overflow-hidden relative ${currentSessionId === session.id ? 'bg-zinc-800 text-white shadow-sm' : ''}`}
+                            className={`flex flex-col gap-0.5 px-3 py-2.5 w-full rounded-lg hover:bg-zinc-800/50 transition-all text-sm text-zinc-300 group overflow-hidden relative ${currentSessionId === session.id ? 'bg-zinc-800 text-white shadow-sm' : ''}`}
                         >
-                            {/* <MessageSquare className={`w-4 h-4 shrink-0 transition-colors ${currentSessionId === session.id ? 'text-emerald-400' : 'text-zinc-500 group-hover:text-zinc-400'}`} /> */}
-                            <span className="truncate flex-1 text-left relative z-10">{session.title}</span>
-                            {currentSessionId === session.id && <ChevronRight className="w-3 h-3 text-zinc-500" />}
+                            <div className="flex items-center justify-between w-full">
+                                <span className="truncate flex-1 text-left font-medium">{session.title}</span>
+                                {currentSessionId === session.id && <ChevronRight className="w-3 h-3 text-zinc-500 shrink-0 ml-1" />}
+                            </div>
+                            {session.preview && (
+                                <span className="truncate text-xs text-zinc-500 text-left w-full">{stripMarkdown(session.preview)}</span>
+                            )}
                         </button>
                     ))}
                 </div>

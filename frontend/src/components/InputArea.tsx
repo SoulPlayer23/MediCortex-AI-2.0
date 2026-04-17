@@ -77,7 +77,7 @@ const InputArea = ({ onSend, isLoading, isEmptyState }: InputAreaProps) => {
     return (
         <div className={clsx(
             "w-full px-4 z-30 transition-all duration-300 ease-in-out",
-            isEmptyState ? "absolute top-[55%] left-1/2 -translate-x-1/2 -translate-y-1/2 max-w-2xl" : "absolute bottom-6 left-0 w-full"
+            isEmptyState ? "max-w-2xl" : "pb-4 pt-2"
         )}>
             <div className={clsx("mx-auto", isEmptyState ? "w-full" : "max-w-3xl")}>
                 <div className="relative flex flex-col w-full bg-zinc-800/70 backdrop-blur-xl rounded-[26px] shadow-2xl border border-white/10 ring-1 ring-black/5 overflow-hidden transition-all focus-within:ring-white/10 focus-within:bg-zinc-800/90">

@@ -18,8 +18,11 @@ class MedGemmaLLM(LLM):
     """
 
     api_url: str = Field(default_factory=lambda: settings.MEDGEMMA_API_URL)
-    max_tokens: int = Field(default=1024)  # Bumped for fuller clinical responses
-    temperature: float = Field(default=0.0)
+    max_tokens: int = Field(default=4096)
+    temperature: float = Field(default=0.4)
+    top_k: int = Field(default=65)
+    top_p: float = Field(default=0.95)
+    min_p: float = Field(default=0.0)
     timeout: int = Field(default=120)  # MedGemma inference takes ~17s; allow headroom
 
     @property
@@ -41,6 +44,10 @@ class MedGemmaLLM(LLM):
             "prompt": prompt,
             "image_base64": None,
             "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "top_k": self.top_k,
+            "top_p": self.top_p,
+            "min_p": self.min_p,
         }
 
         try:
@@ -56,18 +63,20 @@ class MedGemmaLLM(LLM):
             return text_output
 
         except requests.exceptions.RequestException as e:
-            # MedGemma is offline — fall back to OpenAI GPT-4o-mini
-            logger.warning(f"MedGemma server unreachable ({e}). Falling back to OpenAI GPT-4o-mini.")
+            # MedGemma is offline — fall back to Gemma 4 via Ollama Cloud
+            logger.warning(f"MedGemma server unreachable ({e}). Falling back to Gemma 4 (Ollama Cloud).")
 
             try:
-                from langchain_openai import ChatOpenAI
+                from langchain_ollama import ChatOllama
                 from langchain_core.messages import HumanMessage, SystemMessage
 
-                fallback = ChatOpenAI(
-                    model="gpt-4o-mini",
-                    temperature=self.temperature,
-                    api_key=settings.OPENAI_API_KEY,
-                    max_tokens=self.max_tokens,
+                fallback = ChatOllama(
+                    model=settings.OLLAMA_CLOUD_MODEL,
+                    temperature=1.0,
+                    top_p=0.95,
+                    top_k=64,
+                    num_predict=self.max_tokens,
+                    base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
                 )
 
                 # Split prompt into System and Human messages for better instruction following
@@ -94,11 +103,11 @@ class MedGemmaLLM(LLM):
                 return text_output
 
             except Exception as fallback_error:
-                logger.error(f"OpenAI fallback also failed: {fallback_error}")
+                logger.error(f"Gemma 4 fallback also failed: {fallback_error}")
                 return (
-                    f"Error: MedGemma is offline and the OpenAI fallback failed.\n"
+                    f"Error: MedGemma is offline and the Gemma 4 fallback failed.\n"
                     f"MedGemma error: {e}\n"
-                    f"OpenAI error: {fallback_error}"
+                    f"Gemma 4 error: {fallback_error}"
                 )
 
     def _stream(
@@ -118,6 +127,10 @@ class MedGemmaLLM(LLM):
             "prompt": prompt,
             "image_base64": None,
             "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "top_k": self.top_k,
+            "top_p": self.top_p,
+            "min_p": self.min_p,
         }
 
         try:

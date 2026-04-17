@@ -28,9 +28,10 @@ class MessageResponse(BaseModel):
 class SessionResponse(BaseModel):
     id: UUID
     title: str
+    preview: str = ""
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 class ChatResponse(BaseModel):

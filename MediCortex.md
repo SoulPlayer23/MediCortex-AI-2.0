@@ -103,17 +103,21 @@ User Input → Presidio redact_pii() → <PERSON_1> + mapping stored in AgentSta
 -   PostgreSQL (Local or Docker)
 -   MinIO Server (Local or Docker)
 -   Redis (Local or Docker — Optional for Idempotency Cache, defaults to memory)
--   OpenAI API Key (GPT models)
--   Groq API Key (Model-as-Judge)
+-   Ollama server with `gemma4:e2b` (Router / Aggregator / Extractor / Fallback)
+-   Groq API Key (Model-as-Judge, optional)
 
 ### 1. Environment Setup
 Create a `.env` file in the root directory (validated by `config.py`):
 ```bash
-OPENAI_API_KEY=your_key_here
-GROQ_API_KEY=your_groq_key_here
-JUDGE_SAMPLE_RATE=1.0  # Optional: 0.0-1.0 to sample evaluation frequency
+# Ollama / Gemma 4 (all generation — router, aggregator, extractor, fallback)
+OLLAMA_CLOUD_URL=http://homeserver:11434/v1
+OLLAMA_CLOUD_API_KEY=ollama
+OLLAMA_CLOUD_MODEL=gemma4:e2b
+
+GROQ_API_KEY=your_groq_key_here  # Optional: Model-as-Judge
+JUDGE_SAMPLE_RATE=1.0             # Optional: 0.0-1.0
 DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/medicortex
-MINIO_URL=localhost:9000
+MINIO_URL=http://localhost:9000
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin
 REDIS_URL=redis://localhost:6379/0

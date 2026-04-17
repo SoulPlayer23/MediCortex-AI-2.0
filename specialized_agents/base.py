@@ -1,11 +1,12 @@
 import inspect
 import logging
+import re
 import redis
 from typing import List, Dict, Any, Optional, Tuple
 
 from langchain_core.tools import BaseTool
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
-from langchain_openai import ChatOpenAI
+from langchain_ollama import ChatOllama
 
 from .medgemma_llm import MedGemmaLLM
 from .protocols import AgentCard, Envelope, AgentResponse
@@ -14,7 +15,7 @@ from config import settings
 logger = logging.getLogger("SpecializedAgents")
 
 # MedGemma — used exclusively for clinical synthesis (Phase 2).
-# Tool orchestration is handled by GPT-4o-mini (Phase 1).
+# Tool orchestration is handled by Gemma 4 (Phase 1).
 llm = MedGemmaLLM()
 
 
@@ -22,7 +23,7 @@ class A2ABaseAgent:
     """
     Base Agent implementing the A2A Protocol with a two-phase execution model:
 
-      Phase 1 — GPT-4o-mini (planner):
+      Phase 1 — Gemma 4 (planner):
         Decides which tools to call, calls them, collects observations.
         Emits tool thoughts in real-time for SSE streaming.
 
@@ -30,7 +31,7 @@ class A2ABaseAgent:
         Receives the original query + all gathered tool results.
         Called exactly once to produce the final clinical response.
 
-    This cleanly separates agentic orchestration (GPT-4o-mini's strength) from
+    This cleanly separates agentic orchestration (Gemma 4's strength) from
     medical knowledge synthesis (MedGemma's strength), and eliminates the
     token waste of making a 4B medical model reason about tool selection.
     """
@@ -108,14 +109,14 @@ class A2ABaseAgent:
 
             # tool_context carries sensitive data that must never appear in any
             # LLM prompt. _call_tool() injects matching keys at call time via
-            # inspect.signature, keeping PII out of both GPT-4o-mini and MedGemma.
+            # inspect.signature, keeping PII out of both Gemma 4 and MedGemma.
             tool_context: Dict[str, Any] = {}
             if pii_json := envelope.payload.get("pii_mapping_json"):
                 tool_context["pii_mapping_json"] = pii_json
             if kc := envelope.payload.get("knowledge_context"):
                 tool_context["knowledge_context"] = kc
 
-            output, thinking_steps = self._plan_and_synthesize(
+            output, thinking_steps, sources, low_context, refined_query = self._plan_and_synthesize(
                 user_input, live_thoughts_queue, tool_context
             )
 
@@ -123,6 +124,9 @@ class A2ABaseAgent:
                 envelope_id=envelope.idempotency_key,
                 output=output,
                 thinking=thinking_steps,
+                sources=sources,
+                low_context=low_context,
+                refined_query=refined_query,
             )
 
             # Cache write
@@ -167,11 +171,14 @@ class A2ABaseAgent:
         user_input: str,
         live_thoughts_queue: Optional[list] = None,
         tool_context: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[str, List[str]]:
+    ) -> Tuple[str, List[str], List[dict], bool, Optional[str]]:
         """
         Two-phase pipeline:
-          Phase 1 — GPT-4o-mini gathers tool data (emits thoughts in real-time).
+          Phase 1 — Gemma 4 gathers tool data (emits thoughts in real-time).
           Phase 2 — MedGemma synthesizes the final clinical response (single call).
+
+        Returns (final_answer, thinking_steps, sources, low_context, refined_query).
+        low_context and refined_query support RAG-1 Part B reactive re-retrieval.
         """
         thinking_steps: List[str] = []
         tool_context = tool_context or {}
@@ -182,11 +189,16 @@ class A2ABaseAgent:
                 live_thoughts_queue.append(t)
 
         # Phase 1 — tool gathering
+        low_context = False
+        refined_query = None
         try:
-            tool_results = self._gather_tool_results(user_input, emit_thought, tool_context)
+            tool_results, sources, low_context, refined_query = self._gather_tool_results(
+                user_input, emit_thought, tool_context
+            )
         except Exception as e:
             logger.error(f"[{self.name}] Tool gathering failed: {e}")
-            tool_results = []
+            tool_results, sources = [], []
+            low_context = True
             emit_thought(
                 f"**[{self.name.title()}]**: Tool gathering failed — "
                 f"synthesizing from medical knowledge only."
@@ -200,28 +212,83 @@ class A2ABaseAgent:
             logger.error(f"[{self.name}] Synthesis failed: {e}")
             final_answer = f"Error generating clinical response: {e}"
 
-        return final_answer, thinking_steps
+        return final_answer, thinking_steps, sources, low_context, refined_query
+
+    # Matches any http/https URL, stopping at whitespace, closing brackets, or quotes
+    _URL_RE = re.compile(r'https?://[^\s\)\]"\',<>]+')
+
+    def _extract_sources_from_observation(self, observation: str) -> List[dict]:
+        """
+        Extract {title, url} pairs from a single tool observation string.
+
+        Pass 1 — structured format used by all web crawl tools:
+            ### N. <Page Title>
+            - **Source:** <domain>
+            - **URL:** <url>
+        Backtracks up to 10 lines from each URL line to find its titled heading,
+        so the Sources accordion shows "Type 2 diabetes - Mayo Clinic" instead of
+        the raw URL.
+
+        Pass 2 — bare URL fallback for any URLs not captured by Pass 1
+        (e.g. URLs embedded inline in non-structured observations).
+        """
+        lines = observation.splitlines()
+        sources: List[dict] = []
+        seen: set = set()
+
+        # Pass 1: structured "### N. Title" → "- **URL:** url"
+        for i, line in enumerate(lines):
+            m = re.match(r'\s*-\s+\*\*URL:\*\*\s+(https?://\S+)', line)
+            if not m:
+                continue
+            url = m.group(1)
+            if url in seen:
+                continue
+            seen.add(url)
+            title = url  # fallback
+            for j in range(i - 1, max(i - 10, -1), -1):
+                hm = re.match(r'###\s+\d+\.\s+(.+)', lines[j])
+                if hm:
+                    title = hm.group(1).strip()
+                    break
+            sources.append({"title": title, "url": url})
+
+        # Pass 2: bare URL fallback for anything not caught above
+        for url in self._URL_RE.findall(observation):
+            if url not in seen:
+                seen.add(url)
+                sources.append({"title": url, "url": url})
+
+        return sources
 
     def _gather_tool_results(
         self,
         user_input: str,
         emit_thought,
         tool_context: Dict[str, Any],
-    ) -> List[Tuple[str, str]]:
+    ) -> Tuple[List[Tuple[str, str]], List[dict], bool, Optional[str]]:
         """
-        Phase 1: GPT-4o-mini decides which tools to call and in what order.
+        Phase 1: Gemma 4 decides which tools to call and in what order.
 
         Uses LangChain bind_tools() so tool schemas are generated automatically.
         Loops up to self.max_iterations times to allow multi-tool pipelines
         (e.g. patient agent: retrieve → history → vitals → medications).
 
         tool_context keys (pii_mapping_json, knowledge_context) are injected
-        at call time by _call_tool() and are never visible to GPT-4o-mini.
+        at call time by _call_tool() and are never visible to Gemma 4.
+
+        Returns (tool_results, sources, low_context, refined_query) where:
+        - low_context is True when tool observations are empty or thin (<200 chars total)
+          OR when the planner emits a CONTEXT_INSUFFICIENT:<term> sentinel.
+        - refined_query is a more specific KB search term suggested by the planner,
+          or None if context was sufficient.
         """
-        planner = ChatOpenAI(
-            model="gpt-4o-mini",
-            temperature=0,
-            api_key=settings.OPENAI_API_KEY,
+        planner = ChatOllama(
+            model=settings.OLLAMA_CLOUD_MODEL,
+            temperature=1.0,
+            top_p=0.95,
+            top_k=64,
+            base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
         )
         planner_with_tools = planner.bind_tools(list(self.tools.values()))
 
@@ -231,19 +298,25 @@ class A2ABaseAgent:
                 f"Your ONLY job is to call the available tools to collect all information "
                 f"needed to answer the user's medical query. "
                 f"Do NOT generate a final answer or explain your reasoning — "
-                f"only call tools. Stop when you have gathered sufficient data."
+                f"only call tools. Stop when you have gathered sufficient data.\n"
+                f"If after exhausting all tools you still cannot find enough information to "
+                f"answer the query, output exactly: CONTEXT_INSUFFICIENT:<term> where <term> is a "
+                f"SHORT medical search phrase (2-5 words, no sentences, no explanations). "
+                f"Example: CONTEXT_INSUFFICIENT:atrial flutter symptoms. No other text."
             )),
             HumanMessage(content=user_input),
         ]
 
         results: List[Tuple[str, str]] = []
+        seen_urls: set = set()
+        sources: List[dict] = []
 
         for _ in range(self.max_iterations):
             response = planner_with_tools.invoke(messages)
             messages.append(response)
 
             if not response.tool_calls:
-                # GPT-4o-mini decided no more tools needed
+                # Gemma 4 decided no more tools needed
                 break
 
             for tc in response.tool_calls:
@@ -261,12 +334,40 @@ class A2ABaseAgent:
                 observation = self._call_tool(tool_name, args, tool_context)
                 results.append((tool_name, observation))
 
+                # Extract titled sources from this observation
+                for src in self._extract_sources_from_observation(observation):
+                    if src["url"] not in seen_urls:
+                        seen_urls.add(src["url"])
+                        sources.append(src)
+
                 snippet = observation[:300] + "…" if len(observation) > 300 else observation
                 emit_thought(f"**Observation** (`{tool_name}`): {snippet}")
 
                 messages.append(ToolMessage(content=observation, tool_call_id=tc["id"]))
 
-        return results
+        # RAG-1 Part B: check for CONTEXT_INSUFFICIENT sentinel in the final planner message
+        low_context = False
+        refined_query = None
+        last_planner_msg = messages[-1] if messages else None
+        if hasattr(last_planner_msg, "content") and isinstance(last_planner_msg.content, str):
+            content = last_planner_msg.content.strip()
+            if content.startswith("CONTEXT_INSUFFICIENT:"):
+                low_context = True
+                refined_query = content[len("CONTEXT_INSUFFICIENT:"):].strip() or None
+
+        # Auto-detect near-zero results even without explicit sentinel.
+        # Threshold kept low (50 chars) to avoid false positives when the web
+        # tools return a small-but-valid response — the explicit CONTEXT_INSUFFICIENT
+        # sentinel is the primary signal; this only catches truly empty tool loops.
+        if not low_context and results:
+            total_obs_len = sum(len(obs) for _, obs in results)
+            if total_obs_len < 50:
+                low_context = True
+
+        if not low_context and not results:
+            low_context = True
+
+        return results, sources, low_context, refined_query
 
     def _call_tool(
         self,
@@ -277,7 +378,7 @@ class A2ABaseAgent:
         """
         Execute a tool, transparently injecting tool_context keys that match
         the tool's function signature (e.g. pii_mapping_json for patient tools).
-        Neither GPT-4o-mini nor MedGemma ever sees these injected values.
+        Neither Gemma 4 nor MedGemma ever sees these injected values.
         """
         tool = self.tools.get(tool_name)
         if not tool:
@@ -309,6 +410,10 @@ class A2ABaseAgent:
         Phase 2: MedGemma is called exactly once with the original query and all
         gathered tool data. It produces the final clinical response without any
         awareness of tool orchestration — it only sees medical content.
+
+        After synthesis, a repetition guard checks whether any sentence appears
+        more than 3 times. If so, MedGemma has entered a loop — the output is
+        discarded and Gemma 4 synthesizes instead.
         """
         if tool_results:
             gathered = "\n\n".join(
@@ -328,4 +433,43 @@ class A2ABaseAgent:
                 f"Provide your clinical response:"
             )
 
-        return self.llm.invoke(prompt)
+        output = self.llm.invoke(prompt)
+
+        # Repetition guard: MedGemma sometimes loops a single sentence when it
+        # receives a prompt it cannot ground (e.g. empty KB context). Detect and
+        # fall back to Gemma 4 rather than returning garbage to the user.
+        if self._is_looping(output):
+            logger.warning(
+                f"[{self.name}] MedGemma loop detected — falling back to Gemma 4"
+            )
+            try:
+                from langchain_core.messages import HumanMessage as _HumanMessage
+                fallback = ChatOllama(
+                    model=settings.OLLAMA_CLOUD_MODEL,
+                    temperature=1.0,
+                    top_p=0.95,
+                    top_k=64,
+                    base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
+                )
+                output = fallback.invoke([_HumanMessage(content=prompt)]).content
+            except Exception as e:
+                logger.error(f"[{self.name}] Gemma 4 fallback also failed: {e}")
+                # Return whatever MedGemma produced rather than silently swallowing the error
+        return output
+
+    @staticmethod
+    def _is_looping(text: str, max_repeats: int = 3) -> bool:
+        """Return True if any sentence in *text* appears more than *max_repeats* times."""
+        # Split on sentence-ending punctuation followed by whitespace or end-of-string
+        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        if len(sentences) < max_repeats + 1:
+            return False
+        counts: Dict[str, int] = {}
+        for s in sentences:
+            normalized = s.strip().lower()
+            if not normalized:
+                continue
+            counts[normalized] = counts.get(normalized, 0) + 1
+            if counts[normalized] > max_repeats:
+                return True
+        return False

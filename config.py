@@ -9,8 +9,10 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/medicortex"
     
-    # OpenAI
-    OPENAI_API_KEY: str
+    # Ollama (Router / Aggregator / Extractor / Agent Planner / Fallback synthesizer)
+    # Default: homeserver running gemma4:e2b via Ollama. No /v1 suffix — ChatOllama uses native API.
+    OLLAMA_CLOUD_URL: str = "http://homeserver:11434"
+    OLLAMA_CLOUD_MODEL: str = "gemma4:e2b"
     
     # MinIO
     MINIO_URL: str = "http://localhost:9000"

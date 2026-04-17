@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+> **Navigation Map** — before making any change, check [`docs/nav-map.md`](docs/nav-map.md) first. It maps every UI page and backend service to the exact file(s) to edit.
 
 ---
 
@@ -8,190 +8,107 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### Backend
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Initialize database schema (drops & recreates tables)
-python -m database.init_db
-
-# Build knowledge graph assets
+python -m database.init_db          # drops & recreates tables
 python3 -m knowledge_core.build_fast_assets
-
-# Start the orchestrator API (port 8001)
-python orchestrator.py
-
-# Start the MCP server (stdio transport)
-python tools/mcp_server.py
+python orchestrator.py              # API on port 8001
+python tools/mcp_server.py          # MCP (stdio)
 ```
 
 ### Frontend
 ```bash
 cd frontend
 npm install
-npm run dev       # http://localhost:5173
+npm run dev    # http://localhost:5173
 npm run build
 npm run lint
 ```
 
-> **Vite HMR limitation (this machine):** File changes written by Claude Code's Edit/Write tools (or via WSL/git-bash) to the Windows `D:` drive do **not** trigger Vite's chokidar watcher (`ReadDirectoryChangesW` events are not fired). A hard browser refresh will serve stale compiled output. After any frontend file change, **restart the dev server manually** (`Ctrl-C` then `npm run dev`) to pick up the change.
+> **Vite HMR limitation**: File changes by Claude Code on Windows `D:` drive do **not** trigger chokidar. After any frontend change, restart the dev server manually (`Ctrl-C` then `npm run dev`).
 
 ### Testing
 ```bash
-# Run all tests
 pytest
-
-# Run a single test file
 pytest tests/integration/test_reviewer_node.py
-
-# Run a specific test function
 pytest tests/integration/test_reviewer_node.py::test_reviewer_low_score
-
-# Health check (requires running services)
-python tests/health_check.py
+python tests/health_check.py        # requires running services
 ```
 
 ---
 
-## Architecture
+## Architecture Overview
 
-### Request Flow (LangGraph Pipeline)
-
-Every `/chat/stream` or `/chat` request traverses this LangGraph graph in `orchestrator.py`:
+Full details in [`docs/architecture.md`](docs/architecture.md).
 
 ```
-node_analyze_privacy      (Presidio redacts 8 PII entity types → placeholders; file_urls extracted from attachments)
-    → node_retrieve_knowledge   (GPT-4o-mini extracts entity, queries knowledge graph; gracefully skipped if ArangoDB offline)
-    → node_router               (GPT-4o-mini selects agents; route_decision always adds report_analyzer if file_urls present)
-    → [pubmed | diagnosis | report_analyzer | patient | pharmacology]   (parallel or single, ≤3)
-    → node_aggregator           (GPT-4o-mini formats Markdown)
-    → node_reviewer             (Groq llama-3.3-70b-versatile scores 1–5; appends disclaimer if < 3)
-    → node_restore_privacy      (replaces <PERSON_1> placeholders with real names)
-    → END
+node_analyze_privacy → node_retrieve_knowledge → node_router
+    → [pubmed | diagnosis | report_analyzer | patient | pharmacology]  (≤3 parallel)
+    → node_aggregator → node_reviewer → node_restore_privacy → END
 ```
 
-**HIPAA Privacy**: Presidio redacts 8 entity types (`PERSON`, `PHONE_NUMBER`, `EMAIL_ADDRESS`, `DATE_TIME`, `LOCATION`, `US_SSN`, `URL`, `IP_ADDRESS`) at entry. Placeholders are **never** sent to external LLMs. `pii_mapping_json` travels only inside `Envelope.payload` — never injected into the LLM prompt text — preventing real name leakage through the GPT fallback. `node_restore_privacy` is the only place real names are restored.
+All nodes live in `orchestrator.py`. Singletons initialized in `lifespan()` — never at module level.
 
-**History Re-injection**: When past chat turns are injected into agent context, `redact_identifying_pii()` (a narrow variant of `redact_pii()`) is applied to the history string. It strips only `PERSON`, `PHONE_NUMBER`, `EMAIL_ADDRESS`, and `US_SSN` — **not** `DATE_TIME` or `LOCATION`, which are clinically meaningful and must not be stripped from history. This prevents real names stored in the DB from re-entering the LLM prompt on subsequent turns.
+**HIPAA**: PII is redacted by Presidio at entry into `<PERSON_N>` placeholders. Real names only restored in `node_restore_privacy`. `pii_mapping_json` travels only in `Envelope.payload`, never in LLM prompt text. When re-injecting history use `redact_identifying_pii()` not `redact_pii()` (preserves `DATE_TIME`/`LOCATION`).
 
-**File Inputs**: `/upload` stores files to MinIO and returns a presigned URL. The frontend sends these as a structured `attachments: [{url, filename, type}]` field in `ChatRequest`. The orchestrator extracts `file_urls` into `AgentState` and injects them into the `report_analyzer` agent's input as `Files to analyze:\n<urls>`. `route_decision` automatically includes `report_analyzer` whenever `file_urls` is non-empty.
+---
 
-**SSE Streaming**: The `/chat/stream` endpoint uses a global `ACTIVE_STREAMS` dict keyed by `session_id`. Agents append to a shared `live_thoughts` list during the ReAct loop; the endpoint polls and yields `thought` events while the LangGraph task runs in the background.
+## Agents
 
-**Singleton Initialization (lifespan pattern)**: All heavy singletons — `MedicalReasoningEngine`, `PrivacyManager`, `ChatOpenAI` LLM client, and the compiled `orchestrator_graph` — are created inside the FastAPI `lifespan()` async context manager, **not** at module level. Module-level declarations are `None` placeholders; `lifespan()` assigns them via `global` and logs each step. This prevents triple-initialization when Uvicorn runs with `reload=True` (main process + StatReload watcher + worker each import the module, but only the worker runs `lifespan`). Node functions reference these globals at call time, so `None` at import is safe.
+Full details in [`docs/agents.md`](docs/agents.md).
 
-**Knowledge Core**: `node_retrieve_knowledge` queries ArangoDB (on homeserver via Tailscale VPN) through `MedicalReasoningEngine`. `_aql()` has a 10s timeout; asset load failures are caught at init. `medical_engine` is set to `None` if unavailable, producing empty context without crashing the request.
+| Registry Key | Agent File |
+|---|---|
+| `pubmed` | `pubmed_agent.py` |
+| `diagnosis` | `diagnosis_agent.py` |
+| `report_analyzer` | `report_agent.py` |
+| `patient` | `patient_agent.py` |
+| `pharmacology` | `drug_agent.py` |
 
-### A2A Protocol
+Registry key, `A2ABaseAgent.name`, and `AgentCard.name` **must all match**.
 
-All inter-agent communication is typed via Pydantic in `specialized_agents/protocols.py`:
-- **`Envelope`**: wraps every request with `trace_id`, `idempotency_key`, `sender_id`, `receiver_id`, `payload`.
-- **`AgentResponse`**: wraps output with `thinking` (list of ReAct steps), optional `error`, and `usage`.
-- **`AgentCard`**: metadata manifest published at `GET /.well-known/agent-cards`.
+All agents extend `A2ABaseAgent` (`specialized_agents/base.py`) which implements the ReAct loop, idempotency (Redis → in-memory fallback), and tool context injection (HIPAA-safe PII passing via `inspect.signature`).
 
-The `A2ABaseAgent` (`specialized_agents/base.py`) implements the ReAct loop (`_execute_rect_loop`), idempotency caching (Redis → in-memory fallback, 24h TTL), thought emission, and transparent tool context injection via `tool_context`.
+**LLM Stack**:
+- **Router / Aggregator / Extractor / Agent-Planner** → `gemma4:e2b` via homeserver Ollama (`http://homeserver:11434/v1`). A warmup call fires at `lifespan()` startup to pre-load the model and avoid cold-start hangs. Set `OLLAMA_FLASH_ATTENTION=0` on the Ollama host to prevent Flash Attention hangs on long prompts.
+- **Agents (synthesis)** → MedGemma (`localhost:8000`, fallback `gemma4:e2b` via homeserver Ollama).
+- **Judge** → Groq `llama-3.3-70b-versatile` (evaluation only, not used for generation).
 
-**Tool Context Injection**: `_execute_rect_loop` accepts `tool_context: Dict[str, Any]`. When invoking a tool, the base agent uses `inspect.signature` to discover if the tool accepts any `tool_context` keys (e.g. `pii_mapping_json`). Matching keys are injected as named arguments without the LLM ever seeing them. This is the mechanism that makes HIPAA-safe patient record lookups work — the LLM only passes `<PERSON_1>`, and `pii_mapping_json` is silently appended at call time.
+Web crawlers use **DuckDuckGo** (not Google — bot-detected). Tool results cached via `@redis_cache` (24h TTL).
 
-### Specialized Agents
+---
 
-Each agent in `specialized_agents/` extends `A2ABaseAgent` and is registered in `AGENT_REGISTRY` (`agents.py`). The registry key, `A2ABaseAgent` name, and `AgentCard.name` **must all match**:
+## Data Layer
 
-| Registry Key | Agent File | Tools Used |
-|---|---|---|
-| `pubmed` | `pubmed_agent.py` | `pubmed_search_tools`, `medical_webcrawler_tools` |
-| `diagnosis` | `diagnosis_agent.py` | `symptom_analysis_tools`, `diagnosis_webcrawler_tools` |
-| `report_analyzer` | `report_agent.py` | `document_extraction_tools`, `image_extraction_tools`, `report_analysis_tools` |
-| `patient` | `patient_agent.py` | `patient_retriever_tools`, `patient_history_analyzer_tools`, `patient_vitals_tools`, `patient_medication_review_tools` |
-| `pharmacology` | `drug_agent.py` | `drug_interaction_tools`, `drug_recommendation_tools` |
+Full details in [`docs/data-layer.md`](docs/data-layer.md).
 
-### LLM Stack
+- **PostgreSQL** (asyncpg + SQLAlchemy): `chat_sessions`, `chat_messages`, `patients`. Schema: `database/schema.sql`.
+- **MinIO**: file uploads. `MINIO_URL` must be a full URL (e.g. `http://localhost:9000`).
+- **Config**: `.env` via `config.py` (Pydantic `BaseSettings`). All services degrade gracefully. `OPENAI_API_KEY` is no longer required — Gemma 4 handles all generation.
 
-- **Router / Aggregator / Knowledge Refinement**: `gpt-4o-mini` via `langchain-openai`
-- **Specialized Agents (default)**: MedGemma runs locally on this machine at `http://localhost:8000/predict`. URL is configured via `MEDGEMMA_API_URL` in `config.py` (also set in `.env`). Falls back to `gpt-4o-mini` automatically on connection failure. See `specialized_agents/medgemma_llm.py`. Supports token streaming via `_stream()` which consumes the `/predict/stream` SSE endpoint; falls back to a single-chunk `_call()` if streaming fails.
-- **Model-as-Judge**: Groq `llama-3.3-70b-versatile` (fallback: `llama-3.1-8b-instant`). Controlled by `JUDGE_ENABLED`, `JUDGE_SAMPLE_RATE`, `JUDGE_MAX_INPUT_TOKENS` in `config.py`.
+---
 
-### Tool Caching
+## Frontend
 
-External API tools (PubMed, web crawlers) use the `@redis_cache` decorator from `utils/cache_utils.py` (24h TTL, Redis-backed, gracefully skipped if Redis is unavailable).
+Full details in [`docs/frontend.md`](docs/frontend.md).
 
-### Web Search (DDG)
+React 19 + Vite + Tailwind in `frontend/`. Key files:
 
-All web-crawling tools use **DuckDuckGo (`ddgs>=9.0.0`)** — not Google. Google scraping is broken (bot-detection returns 0 CSS selector hits). The pattern across all 4 tools is identical:
-1. Query DDG with a `site:` OR-filter scoped to trusted domains.
-2. Filter results to trusted domains only.
-3. If no trusted results, fall back to an unfiltered DDG query.
-4. Fetch page HTML with `httpx` for the top result(s) and extract content with BeautifulSoup.
-
-Affected tools: `crawl_diagnosis_articles`, `crawl_medical_articles`, `check_drug_interactions`, `recommend_drugs`.
-
-### Multi-Turn Routing Context
-
-`node_router` receives a `routing_context` string (compact redacted summary of the last 3 turns) built by `_build_routing_context()` in `orchestrator.py`. This resolves ambiguous follow-up queries (e.g. "Are there any dangerous interactions between his medications?" → `[pharmacology]`). The `agents_used` list from each turn is persisted in `message_metadata JSONB` and read back on the next turn to inform routing.
-
-**Routing rules (as of current prompt):**
-- Symptoms only → `['diagnosis']`
-- Treatment options / medications for a disease → `['diagnosis', 'pharmacology']`
-- Symptoms AND treatment → `['diagnosis', 'pharmacology']`
-- Named drug (interaction/dosage/alternatives), no disease context → `['pharmacology']`
-- Research/literature → `['pubmed']`
-- Document/image/lab result attached → always includes `['report_analyzer']`
-
-### Data Layer
-
-- **PostgreSQL** (async via `asyncpg` + SQLAlchemy): `chat_sessions` + `chat_messages` + `patients`. The `chat_messages` table has `thinking JSONB` (agent ReAct steps) and `message_metadata JSONB` (judge score, model used). The `patients` table stores demographics, diagnoses, medications, allergies, and vitals history as JSONB columns — seeded with 14,803 synthetic patients from three Synthea CSV datasets (APR2020, NOV2021, COVID19; Apache 2.0). Schema source of truth is `database/schema.sql`. Re-seed anytime via `python -m tools.migrate_db` (idempotent upsert). Patient lookup in `tools/patient_retriever_tools.py` queries this table via `asyncpg` using a per-call event loop (safe from LangGraph's sync thread-pool nodes).
-- **MinIO**: Object storage for uploaded PDFs/images. `MINIO_URL` must be a full URL (e.g. `http://localhost:9000`). Accessed via `services/minio_service.py` which reads all config from `settings`.
-- **Schema note**: The Pydantic schema alias `message_metadata` avoids collision with SQLAlchemy's internal `MetaData` registry.
-
-### Frontend
-
-React 19 + Vite + Tailwind CSS SPA in `frontend/`. Talks directly to the orchestrator at `http://localhost:8001`.
-
-Key components:
-- **`App.tsx`** — root layout; owns `isSidebarOpen` and `currentSessionId` state.
-- **`Sidebar.tsx`** — fetches `/chats` on mount and whenever `currentSessionId` or `isOpen` changes. Clicking a session calls `onSelectChat(session.id)`.
-- **`ChatArea.tsx`** — fetches `/chats/{id}` when `sessionId` changes; streams `/chat/stream` SSE for new messages. Implements **smart scroll**: auto-scrolls to bottom only when the user is within 100 px of the bottom (`isNearBottomRef`); shows an `ArrowDown` button otherwise.
-- **`MessageBubble.tsx`** — renders user/assistant messages with Markdown + syntax highlighting. Includes a collapsible **Thinking Process** accordion showing ReAct steps. Shows an animated bouncing-dots indicator while `isStreaming && content === '' && thinking.length > 0`.
-- **`InputArea.tsx`** — text input with attachment and microphone icons.
-
-Dev server runs at `http://localhost:5173` (`npm run dev`). Backend URL is hardcoded to `localhost:8001` — update if the orchestrator moves.
-
-### MCP Server
-
-`tools/mcp_server.py` exposes 13 tools, agent card **Resources** (URI scheme `agents://medicortex/{name}/card`), and 3 workflow **Prompts** (`patient-full-review`, `drug-safety-check`, `medical-report-analysis`) via STDIO transport.
+| Component | File |
+|---|---|
+| Root layout + session state | `App.tsx` |
+| Chat history sidebar | `Sidebar.tsx` |
+| Message display + SSE streaming | `ChatArea.tsx` |
+| Message rendering + thinking accordion | `MessageBubble.tsx` |
+| Text/file/mic input | `InputArea.tsx` |
 
 ---
 
 ## Key Conventions
 
-### A2A Standards (from `skills/A2A.md`)
-- Every agent must publish an `AgentCard`. Registry key, agent `name`, and `AgentCard.name` must all be identical.
-- All handoffs use `Envelope` / `AgentResponse` Pydantic types.
-- `MAX_CONCURRENT_AGENTS=3` caps parallel agent calls per request. Individual agent `max_iterations` acts as the per-agent ReAct circuit breaker.
-- `trace_id` must propagate through all graph nodes and agent calls.
-- Side-effect tools check `idempotency_key` before executing.
-
-### HIPAA Rules
-- PII is **never** injected into `enhanced_input` (the text sent to any LLM). It travels only inside `Envelope.payload["pii_mapping_json"]`.
-- `tool_context` in `_execute_rect_loop` is the only approved mechanism to pass sensitive data to tools without exposing it to the model.
-- When adding a new tool that requires PII resolution, add its parameter name to the `tool_context` dict in `base.py:process()`.
-- The patient agent system prompt must instruct the LLM to pass **only** the redacted placeholder to `retrieve_patient_records` — never to extract or forward `pii_mapping_json` itself. `pii_mapping_json` is injected silently at call time via `tool_context`.
-- When injecting DB chat history into agent context, always use `redact_identifying_pii()` (not `redact_pii()`). Using full redaction strips `DATE_TIME` tokens which then appear as unrestorable `<DATE_TIME_N>` placeholders in the final output.
-- The model-as-judge prompt includes a NOTE clarifying that `<PERSON_N>` placeholders are intentional de-identification tokens and must not be penalised in the score.
-
-### MCP Standards (from `skills/MCP.md`)
-- Tool `description` fields are prompt instructions — keep them precise and instructional.
-- Read-only data access uses MCP Resources, not Tools.
-- All tool inputs are validated against JSON Schema before execution.
-- Errors are returned as structured text (never crash the server).
-
-### Config
-All settings are loaded from `.env` via `config.py` (Pydantic `BaseSettings`). Required: `OPENAI_API_KEY`. Optional: `GROQ_API_KEY` (judge), `REDIS_URL`, `DATABASE_URL`, `MINIO_*`, `MEDGEMMA_API_URL`, `ARANGODB_HOST`, `ARANGODB_USERNAME`, `ARANGODB_PASSWORD`, `ARANGODB_DB_NAME`. A `.env` template is committed at the repo root. All service hostnames use `homeserver` (Tailscale) except `MEDGEMMA_API_URL` which uses `localhost`.
-
-### Infrastructure Resilience
-All external services degrade gracefully when offline:
-- **Redis**: Falls back to in-memory cache (idempotency + tool caching both have fallbacks).
-- **ArangoDB / Knowledge Core** (homeserver via Tailscale): `_aql()` has a 10s timeout; missing asset files are caught at init. Knowledge context is empty but the request completes normally. `ARANGO_URL` in `knowledge_core/medical_engine.py` is built from `settings.ARANGODB_HOST` — do not hardcode it.
-- **MedGemma** (localhost): Automatically falls back to `gpt-4o-mini` on connection failure.
-
-### Test Structure
-Tests live in `tests/` with subdirectories: `agents/`, `integration/`, `mcp/`, `tools/`, `unit/`. `pytest.ini` sets `asyncio_mode = auto`. Mocking strategy for agents: mock `Envelope` payloads and assert `AgentResponse` output fields.
+- **Registry match**: `agents.py` key = `A2ABaseAgent.name` = `AgentCard.name`
+- **PII rule**: never put real names in `enhanced_input`. Use `tool_context` for PII-needing tools.
+- **History**: use `redact_identifying_pii()` not `redact_pii()` when injecting DB history into prompts
+- **New PII tool**: add its parameter name to `tool_context` dict in `base.py:process()`
+- **MCP tools**: `description` fields are LLM-facing instructions — keep them precise
+- **`ARANGO_URL`**: built from `settings.ARANGODB_HOST` in `knowledge_core/medical_engine.py` — never hardcode
+- **Tests**: `tests/` with subdirs `agents/`, `integration/`, `mcp/`, `tools/`, `unit/`. `asyncio_mode = auto`. Mock `Envelope` payloads, assert `AgentResponse` fields.
