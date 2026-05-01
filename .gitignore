@@ -30,6 +30,14 @@ knowledge_core/assets/
 # Ollama API key files
 Ollama\ API\ Key*.txt
 
+# Ephemeral / generated files
+Claude-response.txt
+MediCortex_AI_2_Journal_Draft.md
+MediCortex_AI_2_Journal_Draft.md.pdf
+compass_artifact_*.md
+=0.1.9
+*.pdf
+
 # Antigravity templates
 directives/
 execution/
@@ -41,3 +49,6 @@ AGENTS.md
 frontend-dev.skill
 web-testing.skill
 intelligent-agent-builder.skill
+
+# Test files
+tests/resources/

@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { Sparkles, Paperclip, Mic, ArrowUp, X, File } from 'lucide-react';
+import { Sparkles, Paperclip, Mic, ArrowUp, X, File, Loader2 } from 'lucide-react';
 import clsx from 'clsx';
+
+// DEPLOY-4: env-driven API base; matches ChatArea/Sidebar.
+const API_BASE: string = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8001';
 
 interface InputAreaProps {
     onSend: (message: string, attachments?: any[]) => void;
@@ -31,7 +34,7 @@ const InputArea = ({ onSend, isLoading, isEmptyState }: InputAreaProps) => {
             formData.append('file', file);
 
             try {
-                const res = await fetch('http://localhost:8001/upload', {
+                const res = await fetch(`${API_BASE}/upload`, {
                     method: 'POST',
                     body: formData,
                 });
@@ -108,8 +111,12 @@ const InputArea = ({ onSend, isLoading, isEmptyState }: InputAreaProps) => {
                         <button
                             onClick={() => fileInputRef.current?.click()}
                             disabled={isUploading}
-                            className="p-2.5 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded-full transition-colors disabled:opacity-50">
-                            <Paperclip className="w-5 h-5" />
+                            className="relative p-2.5 text-zinc-400 hover:text-white hover:bg-zinc-700 rounded-full transition-colors disabled:opacity-50">
+                            {isUploading ? (
+                                <Loader2 className="w-5 h-5 animate-spin text-blue-400" />
+                            ) : (
+                                <Paperclip className="w-5 h-5" />
+                            )}
                         </button>
 
                         <textarea

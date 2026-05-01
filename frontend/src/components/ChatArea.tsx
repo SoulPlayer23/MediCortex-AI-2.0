@@ -8,6 +8,11 @@ import type { Message, SessionState } from '../types';
 // Sentinel cache key used for a brand-new chat before the backend assigns a session ID.
 const PENDING_SESSION = '__pending__';
 
+// DEPLOY-4: backend base URL is environment-driven so the same SPA build can
+// run locally and on GitHub Pages. Falls back to localhost for `npm run dev`
+// when no .env is loaded.
+const API_BASE: string = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8001';
+
 interface ChatAreaProps {
     isSidebarOpen: boolean;
     toggleSidebar: () => void;
@@ -104,7 +109,7 @@ const ChatArea = ({
 
     const fetchMessages = async (id: string) => {
         try {
-            const res = await fetch(`http://localhost:8001/chats/${id}`);
+            const res = await fetch(`${API_BASE}/chats/${id}`);
             if (res.ok) {
                 const data = await res.json();
                 // API serializes the Pydantic alias, so the field arrives as
@@ -139,7 +144,7 @@ const ChatArea = ({
         }));
 
         try {
-            const response = await fetch('http://localhost:8001/chat/stream', {
+            const response = await fetch(`${API_BASE}/chat/stream`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -295,6 +300,7 @@ const ChatArea = ({
                                 key={idx}
                                 role={msg.role}
                                 content={msg.content}
+                                attachments={msg.attachments}
                                 thinking={msg.thinking}
                                 metadata={msg.metadata}
                                 isStreaming={msg.id !== undefined && msg.id === streamingMsgId}

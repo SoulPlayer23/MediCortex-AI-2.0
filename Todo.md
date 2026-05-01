@@ -4,83 +4,107 @@
 
 ## Open Issues
 
+### 🔴 Critical (production blockers — surfaced by 2026-05-01 review)
+
+#### BUG-5 — Mid-stream client disconnect silently drops the assistant message to DB
+**File:** `orchestrator.py:1119–1272` (`event_generator` in `/chat/stream`)
+**Symptom:** When the browser tab is closed or the network drops mid-stream, FastAPI stops iterating the SSE generator. The LangGraph result is fully computed in `final_output_container`, but `chat_service.add_message(...)` at ~line 1262 never runs. The `finally` block only cleans `ACTIVE_STREAMS`. On reload the turn is missing from history.
+**Fix:**
+- Move the DB save into the `finally` block, guarded by a "graph completed" sentinel.
+- Wrap `session_id` reference with `locals().get("session_id")` since the disconnect can happen before binding.
+- Add a `try/except (asyncio.CancelledError, GeneratorExit)` to log disconnect cleanly.
+**Priority:** Critical — reproduces on every mid-stream tab close at the 10-user scale.
+
+#### DEPLOY-3 — CORS wildcard with credentials is invalid and a security hole
+**File:** `orchestrator.py:1105–1111`
+**Symptom:** `allow_origins=["*"]` combined with `allow_credentials=True` is rejected by every modern browser per the CORS spec — and even if it worked, allows any website to make authenticated cross-origin requests to a HIPAA-adjacent API.
+**Fix:**
+- Add `ALLOWED_ORIGINS: list[str]` to `config.py` (default `["http://localhost:5173"]`, prod overrides with the GitHub Pages domain).
+- Replace the middleware `allow_origins=["*"]` with `settings.ALLOWED_ORIGINS`.
+**Priority:** Critical — blocks GitHub Pages frontend access entirely.
+
+#### DEPLOY-4 — Frontend hardcodes `http://localhost:8001` (blocks GH Pages SPA)
+**Files:** `frontend/src/components/ChatArea.tsx:107,142`, `frontend/src/components/InputArea.tsx:34` (and Sidebar.tsx if present)
+**Fix:**
+- Add `VITE_API_BASE_URL` to `frontend/.env.production` (VPS domain) and `.env.development` (`http://localhost:8001`).
+- Replace every `http://localhost:8001` with `${import.meta.env.VITE_API_BASE_URL}`.
+- Wire the variable into the GitHub Actions deploy workflow (planned in DEPLOY-1).
+**Priority:** Critical — blocks the existing DEPLOY-1 ticket.
+
+#### DEPLOY-2 — RunPod Serverless cold-start handling for MedGemma
+**Files:** `config.py:27`, `specialized_agents/medgemma_llm.py:53`, `specialized_agents/base.py:19`
+**Symptom:** `MEDGEMMA_API_URL` defaults to `http://localhost:8000/predict` and `MedGemmaLLM` has a 120s timeout. RunPod Serverless workers spin down after 3–10 min of inactivity; first request after cold-start can hang for the full 120s before the Gemma 4 fallback fires.
+**Fix:**
+- Add `MEDGEMMA_KEEPWARM_URL` to `config.py`; ping it in `lifespan()` startup and optionally from a cron job (e.g. every 4 minutes).
+- Reduce `MedGemmaLLM.timeout` from 120s → 30s so the Gemma 4 fallback triggers promptly on cold start.
+- Add a startup health probe to `MEDGEMMA_API_URL.replace("/predict", "/health")` so cold-start surfaces at server init, not first user.
+- Confirm `requests.exceptions.HTTPError` is a subclass of `RequestException` (it is — the existing fallback path catches 503s correctly).
+**Priority:** Critical — without this, every cold start = 4-minute hang for the user.
+
+#### SEC-1 — Unbounded `file.read()` on `/upload` and `/extract` (DoS / OOM)
+**Files:** `orchestrator.py:1358–1369`, `tools/document_extraction_tools.py:173`
+**Symptom:** `await file.read()` reads the entire file into RAM with no size cap. `httpx.Client.get(url).content` does the same on the document extraction path.
+**Fix:**
+- Add `MAX_UPLOAD_BYTES = 50 * 1024 * 1024` and `MAX_PDF_BYTES = 100 * 1024 * 1024` constants in `config.py`.
+- In `/upload`: read a chunk first, raise `HTTPException(413)` if oversize.
+- In `document_extraction_tools.py`: switch to `client.stream("GET", url)` and accumulate up to the byte cap.
+**Priority:** Critical for prod — single user can OOM a worker.
+
+---
+
+### 🟠 High
+
+#### OPS-1 — DB connection pool sizing for 10 concurrent users
+**File:** `database/connection.py:9`
+**Symptom:** `create_async_engine` defaults to `pool_size=5, max_overflow=10`. Each `/chat/stream` request holds a connection for the full LangGraph pipeline (30–120s during MedGemma synthesis). At 10 concurrent users the pool is exhausted, requests queue, latency spikes.
+**Fix:**
+```python
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    pool_size=20,
+    max_overflow=10,
+    pool_timeout=30,
+    pool_pre_ping=True,  # detects stale connections after VPS restarts
+    echo=False,
+)
+```
+Expose `SQLALCHEMY_POOL_SIZE` via `config.py` for env override.
+
+#### OPS-2 — Sync graph nodes block the asyncio event loop
+**File:** `orchestrator.py:665–768` (`node_aggregator_with_reretrieval`), all `make_agent_node`-built nodes, `node_retrieve_knowledge`, `node_router`
+**Symptom:** Sync `def` graph nodes call `agent_executor.process(envelope)` which calls `requests.post(...)` (blocking). LangGraph's `ainvoke` only offloads sync nodes to a thread pool if explicitly configured. With one event-loop thread, all 10 users effectively serialize.
+**Fix (pick one):**
+- Convert all graph nodes to `async def` and switch `MedGemmaLLM` + planner code to `httpx.AsyncClient`.
+- Or pass `config={"run_in_executor": True}` to `ainvoke` (verify LangGraph version supports it).
+**Verification:** Hit `/chat/stream` from two clients simultaneously; second request's first SSE event should arrive within ~1s, not after the first request completes.
+**Note (QEX-1):** Query expansion (added 2026-05-01) adds up to N sequential Gemma4 LLM calls inside `node_retrieve_knowledge` (one expansion call per extracted entity, capped at 10 total terms). These are sync blocking calls on the event loop. Once OPS-2 is tackled, replace these with `asyncio.gather` across all expansion calls to run them in parallel.
+
+#### OPS-3 — `ACTIVE_STREAMS` is a process-local dict (breaks with `--workers >1`)
+**File:** `orchestrator.py:191,1165,1270`
+**Symptom:** Module-level dict; agents in worker A cannot publish thoughts to an SSE consumer in worker B. Even with `--workers 1`, future scale-out silently breaks thought streaming.
+**Fix:**
+- Short-term: assert at startup that `os.environ.get("WEB_CONCURRENCY", "1") == "1"`, document the constraint.
+- Medium-term: move `ACTIVE_STREAMS` to Redis pub/sub or Redis lists keyed by `streams:{session_id}`. Agents `RPUSH`, SSE poller `BLPOP`.
+
+#### SEC-2 — MinIO presigned URL TTL is 7 days for HIPAA-protected medical docs
+**File:** `services/minio_service.py:51` (`ExpiresIn=604800`)
+**Symptom:** Anyone with the URL can download the document for 7 days, no auth.
+**Fix:**
+- Reduce `ExpiresIn` to 3600 (1 hour) on the document-extraction path.
+- For UI display links, generate a fresh presigned URL on demand via a `/files/{key}/url` endpoint.
+- Document the TTL/inference-latency relationship for ATT-1.
+
+#### SEC-3 — Default credentials and `DEBUG=True` in `config.py`
+**File:** `config.py:7–44`
+**Symptom:** `DEBUG: bool = True`, `MINIO_ACCESS_KEY = "minioadmin"`, `MINIO_SECRET_KEY = "minioadmin"`, `DATABASE_URL` includes `postgres:postgres@…`, `ARANGODB_PASSWORD = ""`. If a VPS `.env` is missing or partial, these defaults silently apply.
+**Fix:**
+- Change `DEBUG: bool = False` as the default; require explicit `DEBUG=true` in dev.
+- Empty all secret defaults (`""`) and add a Pydantic `@model_validator(mode="after")` that raises when `DEBUG=False` and any secret is empty/default.
+- Move `Ollama API Key MediCortex-AI-2.0.txt` and any in-repo secrets out of the working tree (.gitignore).
+
+---
+
 ### 🟡 Medium
-
-#### RAG-1 — Agentic RAG for multi-turn conversation ✅ COMPLETE (2026-04-17)
-**Component:** `orchestrator.py`, `specialized_agents/base.py`
-**QA Report:** `qa/qa-report-rag1-2026-04-12.md`
-**Status:** All three bugs resolved. Full test suite run 2026-04-17 — all blocking tests passed. One routing gap found (T1.3/T5.2 topic-shift entity injection) — logged as BUG-4 below.
-
-**New bug discovered during 2026-04-17 testing:**
-
-**BUG-4 (Low) — Topic-shift entity injection reads wrong state field**
-**File:** `orchestrator.py` → `node_retrieve_knowledge` (~line 331)
-
-Follow-up queries like "What are the side effects?" after "Tell me about metformin" trigger clarification instead of injecting the prior entity. Root cause: topic-shift detection reads `state.get("context", [])` to find `[KB: term]` patterns, but that field is always empty at the start of a new turn. The entity should instead be parsed from `routing_context`, which correctly carries "User asked: Tell me about metformin / Routed to: [pharmacology]".
-
-**Required fix:**
-- [ ] **`orchestrator.py` `node_retrieve_knowledge` — parse entity from `routing_context` instead of `state.get("context", [])`** when topic-shift indicators are present. Extract the last entity mentioned in prior "User asked:" lines via simple word matching or a lightweight regex.
-
-Also discovered during testing:
-- [ ] **`orchestrator.py` `node_retrieve_knowledge` — add `"medication"`, `"medications"`, `"treatment"` to `followup_indicators`** — currently missing, causes T5.2-style follow-ups ("What medications were introduced in 2024 for this condition?") to trigger clarification instead of topic-shift injection.
-
-> **Fresh-session checklist before testing:**
-> 1. Restart `python orchestrator.py` (clears in-memory agent thought cache)
-> 2. Run `python3 -m knowledge_core.build_fast_assets` to verify ArangoDB is populated
-> 3. Open a new chat session in the UI (do not reuse sessions from prior test runs)
-> 4. Open orchestrator terminal — watch for `KB lookup`, `Clarification question generated`, and `Reactive re-retrieval triggered` log lines
-
----
-
-**BUG-1 (Critical) — MedGemma repetition loop during re-retrieved synthesis**
-**File:** `specialized_agents/base.py` → `_plan_and_synthesize`
-
-When re-retrieval fires and MedGemma synthesises the second agent run, it gets stuck producing hundreds of repetitions of a single sentence (e.g. `"The patient reports no history of recent hospitalizations."`). The Groq judge catches it (scores 1–2/5) but the broken content still reaches the user.
-
-**Root cause:** MedGemma receives a re-retrieved prompt where the KB context is still empty (ArangoDB gap). With no grounding data it fills a default `Clinical Profile` template sentence in a loop, consuming its full token budget.
-
-**Required fixes:**
-
-- [x] **`base.py` — add repetition guard before returning MedGemma output.** Implemented in `_synthesize()`: any sentence appearing >3 times triggers Gemma 4 (`gemma4:e2b`) fallback via `ChatOllama`. Log: `"MedGemma loop detected — falling back to Gemma 4"`.
-
-- [x] ~~**`base.py` — cap MedGemma `max_new_tokens` on re-retrieval runs.**~~ **Rejected** — clipping tokens truncates mid-sentence without fixing the cause. Root cause fix (below) makes this unnecessary.
-
-- [x] **Root cause fix — `orchestrator.py` `make_agent_node` + `node_aggregator_with_reretrieval` — strip KB placeholder strings from `context_str` before building `enhanced_input`.** MedGemma looped because `"No specific knowledge found in graph."` was embedded in the synthesis prompt as KB context. Now filtered out at both the initial agent run and re-retrieval re-run sites. If context becomes empty after filtering, the `Context from Knowledge Core` section is omitted entirely.
-
-- [x] **`orchestrator.py` `node_retrieve_knowledge_v2` — no-op guard when re-retrieved KB is also empty.** Returns `re_retrieval_skipped=True`; aggregator skips agent re-run. Added `re_retrieval_skipped: bool` to `AgentState` and initialised to `False` in both invocation paths.
-
-- [x] **`base.py` `_gather_tool_results` — lowered auto-trigger threshold from 200 → 50 chars.** Reduces false-positive `low_context` signals when tools return small-but-valid responses.
-
----
-
-**BUG-2 (Medium) — Clarification branch never fires — `retrieval_ambiguous` always False**
-**File:** `orchestrator.py` → `node_retrieve_knowledge` (entity extraction system prompt, ~line 263)
-
-Vague queries like "my heart feels weird" run the full pipeline instead of returning a short clarifying question. GPT-4o-mini extracts `"heart"` (a generic body part) as a medical entity, preventing `retrieval_ambiguous` from being set. The clarification node, graph wiring, and `should_re_retrieve` edges are all correctly implemented.
-
-**Required fixes:**
-
-- [x] **`orchestrator.py` — expanded negative few-shot examples in the extraction prompt.** Added 7 negative examples (body-part-only, symptom-free vague) plus a RULE line and two positive counter-examples to distinguish "heart failure" (entity) from "heart" (generic).
-
-- [x] **`orchestrator.py` `node_retrieve_knowledge` — added post-extraction body-part filter.** After parsing, if every extracted entity is a single generic anatomical term in `_GENERIC_ANATOMY` (heart, back, stomach, head, etc. — 22 terms, no qualifier), entities are cleared and the clarification branch fires. No LLM call needed.
-
-- [x] **T2.1 — "my heart feels weird" → clarification question, no Thinking Process** ✅ **PASSED** (2026-04-12 — Gemma 4 warmup confirmed, clarification fired correctly in ~12s)
-- [x] **T2.2 — follow-up answer → full pipeline runs** ✅ **PASSED** (2026-04-17 — MedGemma ran clean after temperature=0.4 fix; judge 5/5, 100% confidence; pleuritic chest pain differentials correct)
-- [x] **T2.3 — two consecutive vague messages → no double clarification** ✅ **PASSED** (2026-04-17 — second vague message routed to diagnosis, `is_clarification=false`, judge 4/5)
-
----
-
-**~~BUG-3~~ (Medium) — Re-retrieval over-triggers on every query (false-positive `low_context`)** ✅ RESOLVED (2026-04-15)
-**File:** `knowledge_core/medical_engine.py` → `resolve_entity` / `search_and_reason`
-
-**Actual root cause (found 2026-04-15):** ArangoDB was running and fully populated (4.9M concepts, 7.6M synonyms). The real bug was in `resolve_entity`: the `synonym_map` stores `SYN*` IDs from the `synonyms` collection, but `fetch_node_by_id` queried `concepts/SYN*` — a different collection. Every synonym lookup silently returned `None`, causing all entity resolution to fall through to fuzzy match, which frequently hit isolate nodes with no graph edges, producing empty KB context.
-
-**Fixes applied:**
-- [x] **`medical_engine.py` — replaced `resolve_entity` with `_resolve_candidates`.** New method correctly traverses `synonym_relations` (`SYN* → synonym_relations → concepts/C*`) to get the actual concept document. Returns an ordered list of candidates (synonym → exact → case-insensitive exact → fuzzy).
-- [x] **`medical_engine.py` — `search_and_reason` iterates candidates until one has graph neighbors.** When the primary resolved concept is an isolate (no edges in `concept_relations`), falls through to the next candidate automatically instead of returning empty.
-- [x] **`tests/test_kb_retrieval.py` — standalone retrieval verification script.** Run `python3 tests/test_kb_retrieval.py` to confirm ArangoDB connectivity and entity resolution for metformin, hypertension, and Type 2 Diabetes. All 3 pass.
-- [x] **`orchestrator.py` `node_retrieve_knowledge_v2` — no-op guard.** Implemented. See BUG-1 items above.
-- [x] **`base.py` — lowered `low_context` auto-trigger threshold to 50 chars.** See BUG-1 items above.
 
 #### OBS-1 — Response evaluation / observability dashboard
 **Objective:** Surface per-request evaluation data (judge score, agent selection, latency, token usage, retrieval hits) in a live dashboard without disrupting the main request path.
@@ -193,6 +217,70 @@ All queries use Postgres JSONB operators (`->>`, `->`, `jsonb_array_elements`) w
 - No alerting or thresholds — that's a future concern.
 - No auth on dashboard routes initially (internal tool only).
 
+---
+
+#### REP-1 — LangExtract structured pre-extraction for `report_analyzer` agent
+**Objective:** Replace the current raw-text dump into MedGemma's context with a LangExtract-powered structured pre-extraction step, giving the `report_analyzer` agent typed, schema-validated, hallucination-flagged entities before the ReAct synthesis loop runs.
+
+**Why this is worth doing:**
+The current pipeline (`extract_document_text` → raw text → MedGemma ReAct loop) has three critical gaps: (1) no structured schema — lab values, units, and reference range flags arrive as prose; (2) no hallucination tracing — fabricated values cannot be distinguished from extracted ones; (3) no multi-entity relationship resolution — anaphoric references ("the latter", "the former") in medication/diagnosis text are silently dropped. LangExtract + MedGemma 1.5 4B (already deployed locally) closes all three. MedGemma 1.5 benchmarks on this exact task: PDF→JSON lab extraction at Micro F1 88% / Macro F1 91%, and an 18% macro F1 gain over MedGemma 1.0. The model and the serving infrastructure are already in place.
+
+**Scope:**
+
+**Part A — New `tools/langextract_tools.py` pre-extraction layer:**
+
+1. **Install and configure LangExtract** (`pip install langextract`). Add to `requirements.txt`. Register a custom Ollama provider plugin pointing to `http://homeserver:11434` (using `@router.register()` as documented). Use `temperature=0.0`, `use_schema_constraints=False`, `fence_output=False` (required for local Gemma/MedGemma — cloud JSON-mode is unavailable locally).
+
+2. **Define three Pydantic extraction schemas** as LangExtract class sets:
+   - `LabReportExtraction`: `lab_test_name`, `value`, `unit`, `reference_range`, `flag` (H/L/Critical), `specimen_type`
+   - `RadiologyExtraction`: `finding`, `anatomic_location`, `laterality`, `severity`, `impression_line`
+   - `DischargeSummaryExtraction`: `medication_name`, `dosage`, `route`, `frequency`, `duration`, `indication`, `diagnosis`, `procedure`
+
+3. **`langextract_structured_extract(text: str, doc_type: str) → dict`** — main tool function. Detects `doc_type` from content heuristics (lab panel → `LabReportExtraction`, radiology keywords → `RadiologyExtraction`, else `DischargeSummaryExtraction`). Runs `lx.extract()` with 2–3 few-shot `ExampleData` objects per schema. Returns:
+   ```python
+   {
+       "doc_type": "lab_report",
+       "entities": [...],           # list of typed Extraction objects as dicts
+       "grounded": [...],           # entities with non-None char_interval (verified)
+       "ungrounded": [...],         # entities with None char_interval → hallucination suspects
+       "extraction_passes": 2,
+       "model_used": "medgemma-1.5-4b-it" | "gemma4:e2b"
+   }
+   ```
+
+4. **Few-shot examples** — write 2–3 `lx.data.ExampleData` instances per schema using synthetic (de-identified) clinical text. Examples must use `extraction_text` that is a verbatim substring of the example source text (LangExtract requirement for char-grounding to work). Store in `tools/langextract_examples.py`.
+
+5. **Multi-pass recall** — set `extraction_passes=2` to catch secondary findings (e.g. incidental abnormalities buried after the primary impression, PRN medications in discharge notes).
+
+**Part B — Wire into `report_agent.py`:**
+
+6. **Add `langextract_structured_extract` to the agent's tool list** alongside the existing `extract_document_text`, `extract_image_findings`, and `analyze_report`. Update `report_card.capabilities` to include `"langextract-structured-extraction"`.
+
+7. **Update `_SYSTEM_PROMPT`** to instruct the agent to call `langextract_structured_extract` first on any text-based report, then use the structured JSON output as the authoritative source for the synthesis step. Flag any `ungrounded` entities explicitly in the **Abnormalities** section with a ⚠️ provenance note.
+
+8. **Fallback chain**: if LangExtract raises `ResolverParsingError` (JSON malformed from local model), fall back silently to current `analyze_report` tool. Log the failure to `structlog` with `event="langextract_parse_error"`.
+
+**Part C — Downstream enrichment:**
+
+9. **Feed structured entities to sibling agents** — when `report_analyzer` runs in parallel with `pharmacology` or `diagnosis`, store the `LabReportExtraction` / `DischargeSummaryExtraction` result in `AgentState["structured_report"]`. The aggregator node can inject this structured context into the combined synthesis prompt, allowing pharmacology/diagnosis agents to reason over clean typed data rather than re-parsing prose.
+
+10. **OBS-1 integration** — log `ungrounded_count`, `grounded_count`, `doc_type`, and `extraction_passes` into `msg_metadata["retrieval"]` (already planned in OBS-1) for dashboard visibility on extraction quality.
+
+**Configuration notes (from research):**
+- Local Gemma/MedGemma via Ollama: `use_schema_constraints=False`, `fence_output=False`, `temperature=0.0` — mandatory.
+- MedGemma system prompt must stay concise: `"You are a helpful medical assistant."` — verbose system prompts degrade its performance.
+- For image-based lab reports (PNG/JPEG scans), LangExtract multimodal support is tracked in upstream issue #270 — use the existing `extract_image_findings` MedGemma vision tool for images; LangExtract pre-extraction applies to text-based PDFs only in this implementation.
+- `OLLAMA_FLASH_ATTENTION=0` already set on homeserver — no additional Ollama config needed.
+
+**Dependencies:** LangExtract (`pip install langextract`). No new infrastructure required — MedGemma and Ollama are already running.
+
+**Non-goals:**
+- No vLLM migration for this ticket — Ollama with the custom provider plugin is sufficient.
+- No FHIR mapping output — structured JSON stored in `AgentState` is sufficient for inter-agent communication.
+- No change to the image analysis path (`extract_image_findings`) — LangExtract text-mode only in v1.
+
+---
+
 #### ATT-1 — Attachment-based conversation testing (PDF + image via MedGemma)
 **Objective:** Validate end-to-end quality of document and image analysis through the `report_analyzer` agent, with particular focus on MedGemma's vision capabilities.
 **Scope:**
@@ -201,25 +289,158 @@ All queries use Postgres JSONB operators (`->>`, `->`, `jsonb_array_elements`) w
 - Confirm presigned MinIO URLs are still valid when MedGemma fetches them (TTL vs. inference latency).
 - Document known limitations (file size limits, supported MIME types, MedGemma vision model constraints).
 
-### 🔵 Backlog
+---
 
-#### ~~LLM-1 — Replace GPT-4o-mini with Gemma 4 (`gemma4:e2b`) via Ollama~~ ✅ COMPLETE (2026-04-12, follow-up 2026-04-15)
-**Component:** `orchestrator.py`, `specialized_agents/base.py`, `specialized_agents/medgemma_llm.py`, `config.py`
+#### EVAL-2 — Component test suite (Layer 1 — run now, prerequisite for EVAL-1)
+**Full spec:** `docs/evaluation-test-plan.md` §Layer 1
+**Priority:** Complete before running EVAL-1 — confirms individual nodes behave correctly so full-pipeline numbers are trustworthy.
 
-**Completed (2026-04-12):**
-- All GPT-4o-mini usages replaced with `gemma4:e2b` via homeserver Ollama
-- Replaced in: router, aggregator, entity extractor (`orchestrator.py`), agent Phase 1 planner (`base.py`), MedGemma offline fallback (`medgemma_llm.py`), repetition-loop fallback (`base.py`)
-- Groq remains ONLY for judge (`node_reviewer`) — not used for any generation path
-- `extractor_llm` global added to `orchestrator.py` (same Gemma 4 instance, separate name for clarity)
-- **Flash Attention bug note:** `gemma4:e2b` (2B) is not affected. For larger Dense models on local Ollama: set `OLLAMA_FLASH_ATTENTION=0` to prevent hangs on prompts >3-4K tokens (Ollama GitHub #15350).
+**New test files to write** (existing suite already covers routing basics and reviewer):
 
-**Follow-up fix (2026-04-15):**
-- Switched `ChatOpenAI` → `ChatOllama` (`langchain_ollama`) at all 4 instantiation sites. `ChatOpenAI` against Ollama's `/v1` endpoint rejects `top_k` (not an OpenAI API param); `ChatOllama` supports `top_k`/`top_p` natively via the Ollama native API.
-- `OLLAMA_CLOUD_URL` default updated to `http://homeserver:11434` (no `/v1` suffix). Defensive `.removesuffix("/v1")` at each call site for `.env` backwards compat.
-- `OLLAMA_CLOUD_API_KEY` config setting removed (not used by `ChatOllama`).
-- `max_tokens` → `num_predict` in `medgemma_llm.py` fallback (ChatOllama's parameter name).
+| File | Tests | Covers |
+|---|---|---|
+| `tests/unit/test_privacy_node.py` | PRIV-01..06 | 18 HIPAA identifiers, round-trip restore, multi-patient, placeholder leak prevention |
+| `tests/integration/test_retrieval_node.py` | RET-01..06 | Entity extraction, generic anatomy suppression, KB offline degradation, synonym resolution, multi-turn continuity |
+| `tests/integration/test_router_accuracy.py` | ROUTE-01..50 + CAP/MALFORMED/UNKNOWN | 50-query ground truth set; requires `tests/resources/routing_ground_truth.json` |
+| `tests/integration/test_reviewer_calibration.py` | JUDGE-01..06 | Fabricated dosage caught, determinism at `temperature=0`, PII placeholder detection, sample rate suppression |
+| `tests/integration/test_repetition_guard.py` | REP-GUARD-01..03 | BUG-1 regression: repetition triggers fallback, KB placeholder stripped from `enhanced_input` |
+
+**Resources to create:**
+- `tests/resources/routing_ground_truth.json` — 50 labeled queries with expected agent(s) per query
+
+**Run command:**
+```bash
+pytest tests/unit/ tests/integration/ -v --tb=short -m "not stress"
+```
+
+**Pass targets:** PRIV 100% · RET 100% · ROUTE ≥ 80% · JUDGE 100% · REP-GUARD 100%
 
 ---
+
+#### EVAL-1 — Thesis evaluation experiments (Layer 2 — Tables III–VI + Section 6.2 plots)
+**Component:** `orchestrator.py`, evaluation scripts in `tests/evaluation/`
+**Thesis sections:** Chapter 6, Tables III–VI (RAGAS, Judge calibration, End-to-end, Ablation)
+**Full spec:** `docs/evaluation-test-plan.md` §Layer 2
+**Priority:** Required before dissertation submission
+**Prerequisite:** OBS-1 complete (node_timings in `message_metadata`) + EVAL-2 passing
+
+**Run order:**
+```
+1. pip install ragas pingouin  (add to requirements-eval.txt)
+2. Write 50-query test set → tests/resources/eval_test_set.json  (10 queries × 5 domains, with ground-truth answers citing primary sources)
+3. python tests/evaluation/run_ragas.py              → Table III (RAGAS scores per domain)
+4. EVAL_FORCE_NOAGENT=1 python tests/evaluation/run_ragas.py    → Table V baseline
+5. python tests/evaluation/run_ablation.py           → Table VI (4 ablation configs)
+6. Fill tests/resources/human_ratings.csv (30 queries, 2 raters, 4 dimensions each)
+7. python tests/evaluation/run_judge_calibration.py  → Table IV (ICC + Cohen's kappa)
+8. python tests/evaluation/plots/generate_all.py     → 4 PDF figures for Section 6.2
+```
+
+**Scripts to write:**
+
+- **`tests/evaluation/run_ragas.py`** — sends each test set query to live `/chat/stream`, collects response + `message_metadata.retrieval.refined_context`, feeds `{query, answer, context, ground_truth}` into RAGAS with Llama-3.3-70B evaluator. Writes `results/ragas_scores.json`.
+
+- **`tests/evaluation/run_judge_calibration.py`** — reads `tests/resources/human_ratings.csv` (30 queries rated by two human experts on 1–5 scale: Clinical Accuracy, Completeness, Safety, Clarity), reads judge scores from `message_metadata`, computes ICC via `pingouin.intraclass_corr()` and weighted Cohen's kappa via `sklearn.metrics.cohen_kappa_score()`.
+
+- **`tests/evaluation/run_ablation.py`** — runs the 50-query set 4 times with these env-flag configurations:
+  1. `ARANGODB_HOST=""` → no KG traversal (vector search only)
+  2. `JUDGE_ENABLED=False` → no LLM-as-judge gate
+  3. `MAX_CONCURRENT_AGENTS=1` in code → sequential execution (latency comparison)
+  4. `MEDGEMMA_MODEL=gemma3:4b` → no domain adaptation (base model swap)
+
+- **`tests/evaluation/plots/generate_all.py`** — produces 4 PDF figures:
+  1. RAGAS faithfulness bar chart per domain
+  2. Latency box plot (full vs. sequential vs. non-agentic)
+  3. R-GCN ROC curve (load from notebook output)
+  4. Judge score distribution histogram (from test set `message_metadata.judge_score`)
+
+**Human rating sheet:** `tests/resources/human_ratings_template.csv` columns:
+`item_id, query_preview, response_preview, rater_a_accuracy, rater_a_completeness, rater_a_safety, rater_a_clarity, rater_b_accuracy, rater_b_completeness, rater_b_safety, rater_b_clarity, judge_score, judge_reason`
+
+**Non-agentic baseline ablation flag** — add to `node_router` in `orchestrator.py`:
+```python
+import os
+if os.getenv("EVAL_FORCE_NOAGENT"):
+    return {"messages": [AIMessage(content="[]")]}  # skip routing → direct aggregator
+```
+
+**Dissertation targets:**
+
+| Metric | Target |
+|---|---|
+| RAGAS Faithfulness (overall) | ≥ 0.75 |
+| RAGAS Answer Relevance (overall) | ≥ 0.80 |
+| ICC (Judge vs. Human Rater) | ≥ 0.75 (excellent) |
+| Weighted Cohen's kappa | ≥ 0.60 (substantial) |
+| Accuracy vs. non-agentic baseline | ≥ +10% improvement |
+
+---
+
+#### EVAL-3 — Reliability and adversarial test suite (Layer 3 — post-submission, continuous)
+**Full spec:** `docs/evaluation-test-plan.md` §Layer 3
+**Priority:** 🔵 Backlog — run weekly post-thesis as production quality signal
+**Marker:** `@pytest.mark.stress` — excluded from standard `pytest` CI run
+
+**New test files to write (post-submission):**
+
+| File | Tests | Covers |
+|---|---|---|
+| `tests/stress/test_failure_injection.py` | FAIL-01..05 | ArangoDB offline, Ollama 503, Groq timeout, MinIO 403, all-agents-timeout |
+| `tests/stress/test_input_variation.py` | VAR-01..N | Routing stability — 5 phrasings of the same clinical concept must route to the same agent |
+| `tests/stress/test_adversarial.py` | ADV-01..04 | PII injection via patient notes, jailbreak prompts, path traversal in uploads |
+| `tests/stress/test_multiturn_integrity.py` | MULTI-01..03 | Cross-turn entity consistency, session isolation, PII mapping stability over 10 turns |
+| `tests/stress/test_concurrent_load.py` | LOAD-01 | 10 concurrent `/chat/stream` requests — no session bleed, latency p95 ≤ 2× single-request |
+
+**Run command (weekly cron or manual):**
+```bash
+pytest tests/stress/ -v --tb=short -m stress
+```
+
+---
+
+#### OPS-4 — Per-call `ChatOllama` instantiation + missing timeouts in agent planner
+**File:** `specialized_agents/base.py:286–315`
+**Symptom:** A new `ChatOllama` + `bind_tools()` is built on every `_gather_tool_results` call. With 10 users × up to 5 agents = 50 simultaneous instantiations and no `timeout` set on the planner — a stale homeserver hangs indefinitely.
+**Fix:**
+- Cache `planner_with_tools` per agent class (build once in `__init__`).
+- Add `timeout=60` to the `ChatOllama` constructor.
+- Same audit on every other `ChatOllama`/`requests.post` call site.
+
+#### OPS-5 — Rate limiting + request-size middleware
+**File:** `orchestrator.py` (no middleware today)
+**Fix:** Add `slowapi` (`Limiter(key_func=get_remote_address)`):
+- `/chat/stream`: 10/min/IP
+- `/chat`: 30/min/IP
+- `/upload`: 20/min/IP
+Combine with the SEC-1 size cap. Required before any public exposure.
+
+#### BUG-6 — `retrieval_iterations` metadata always 0 when inline re-retrieval ran
+**File:** `orchestrator.py:1231` + `node_aggregator_with_reretrieval` at ~line 683
+**Symptom:** Test.md T3.1 confirms `retrieval_iterations=0` even though re-retrieval fired. The inline call to `node_retrieve_knowledge_v2(state)` mutates a local dict, not `AgentState`.
+**Fix:** Have `node_aggregator_with_reretrieval` return `{"final_output": …, "retrieval_iteration": iteration + 1}` so LangGraph's reducer propagates the increment to `graph_output`.
+
+#### BUG-7 — Clarification sentinel parsing is fragile
+**File:** `orchestrator.py:942–947`
+**Symptom:** `json.loads(last_msg.replace("'", '"'))` — relies on the LLM emitting Python-list-style output and breaks on any apostrophe in agent keys or surrounding prose.
+**Fix:** Detect `"__clarify__"` substring before attempting parse; fall back to clarification only on exact match `["__clarify__"]` after a tolerant parse (`ast.literal_eval` then JSON).
+
+#### OPS-6 — Idempotency cache key is random UUID (never hits)
+**File:** `specialized_agents/base.py:86`, `specialized_agents/protocols.py`
+**Symptom:** `Envelope.idempotency_key` is a per-request UUID4, so `_redis_cache.get(...)` always misses. Either dedup is silently disabled, or the Redis writes are wasted I/O.
+**Fix:** Either derive the key from `hash((sender_id, receiver_id, json.dumps(payload, sort_keys=True)))`, or remove the cache layer entirely.
+
+#### OPS-7 — Blocking Redis `ping()` at agent registry import time
+**File:** `specialized_agents/base.py:61–64`
+**Symptom:** `redis.from_url(...)` + `.ping()` runs synchronously when `AGENT_REGISTRY` is built (imported at orchestrator boot). A slow/down Redis blocks startup until timeout.
+**Fix:** Pass `socket_timeout=2, socket_connect_timeout=2` to `redis.from_url`. Defer the ping to the lifespan health check.
+
+#### OBS-2 — Production-grade health & readiness probes
+**File:** `orchestrator.py` (`/health` exists; readiness/liveness split missing)
+**Fix:** Split into `/livez` (process up) and `/readyz` (Postgres + MinIO + Redis + Ollama + MedGemma reachable). Use these for VPS uptime monitoring and RunPod readiness gating.
+
+---
+
+### 🔵 Backlog
 
 #### DEPLOY-1 — Deploy frontend to GitHub Pages
 **Component:** `frontend/`, `.github/workflows/`
@@ -235,50 +456,228 @@ All queries use Postgres JSONB operators (`->>`, `->`, `jsonb_array_elements`) w
 
 ---
 
+## Production Deployment Plan (added 2026-05-01)
+
+> Persistent reference for the production rollout. Read top-to-bottom before starting any DEPLOY-* ticket. Surrounds and supersedes the older DEPLOY-1 backlog item.
+
+### Target Tech Stack (cheapest reliable for 10 users, HIPAA-adjacent)
+
+| Component | Service | Plan | Cost / month | Why |
+|---|---|---|---|---|
+| **Frontend SPA** | **GitHub Pages** | Free | $0 | Static React/Vite build, custom domain via CNAME, HTTPS auto. CI via GitHub Actions. |
+| **MedGemma 1.5 4B + Gemma 4 e2b** | **RunPod Serverless GPU** | A4000/A5000 worker, scale-to-zero | ~$5–15 (10 users, ~200 req/day, ~30s/req at $0.00026/sec on A4000) | Pay-per-second. Cold-start handled by DEPLOY-2. Both models share one worker — load Gemma 4 + MedGemma 1.5 4B in a single Ollama-backed container. |
+| **Backend (FastAPI orchestrator)** | **Hetzner Cloud CPX21** | 3 vCPU, 4 GB RAM, 80 GB SSD, Falkenstein/Helsinki | **€7.55 (~$8.20)** | Single-tenant VM, full root, Docker Compose stack. Best price/perf in Europe. Alternative: CX22 €4.51 (2 vCPU, 4 GB) if budget tight. |
+| **PostgreSQL** | **Neon Serverless** Free tier | 0.5 GB, 1 always-on branch | $0 (upgrade to Launch $19 if >0.5 GB) | Auto-scale, point-in-time recovery, async-friendly (asyncpg compatible). Alternative: self-host on the Hetzner box (saves $0 either way at this size). |
+| **Redis** | **Upstash Redis** Free | 256 MB, 10k cmd/day soft cap | $0 | REST + native protocol. Used for tool cache + ACTIVE_STREAMS once OPS-3 lands. Alternative: Redis container on the Hetzner box. |
+| **Object storage (uploads)** | **Cloudflare R2** | 10 GB free, **zero egress** | $0 (until 10 GB) | S3-compatible, presigned URLs work identically to MinIO. Drop-in via `boto3`. Egress-free is critical for downloading uploads back to RunPod. |
+| **ArangoDB (KG)** | Self-host on Hetzner VM (Docker) | bundled | $0 | ArangoGraph cloud is $30+/mo and overkill. Single-container ArangoDB 3.12 with daily `arangodump` backup to R2 is sufficient for 10-user load. |
+| **CDN / WAF / TLS** | **Cloudflare Free** | Proxy `api.medicortex.<your-domain>` → Hetzner IP | $0 | Free TLS, DDoS shielding, simple rate-limit rules, hides origin IP. |
+| **Monitoring** | **Better Stack** Free / **Grafana Cloud** Free | Uptime + log ingest | $0 | Hit `/livez` every 60s. 50 GB/mo log ingest free on Grafana Cloud. |
+| **Secrets** | **Doppler** Free / **GitHub Actions secrets** | — | $0 | `.env` rendered into Hetzner box via Doppler CLI; Actions secrets for SPA build. |
+
+**Estimated total monthly cost: ~$13–25/mo** (dominated by RunPod usage + Hetzner CPX21). Falls to ~$8 if RunPod scales fully to zero between sessions.
+
+> **HIPAA caveat:** Hetzner / Neon / Upstash / R2 are GDPR-compliant but none sign a HIPAA BAA on their free / lowest tiers. For a thesis/internal-tool stage targeting 10 users, this is acceptable; surface it to stakeholders explicitly. If real HIPAA is required later, migrate the backend + DB to AWS (`t4g.small` $13/mo + RDS + S3 with BAA, ~$60–80/mo).
+
+### Component Layout on Hetzner CPX21
+
+Single VM, Docker Compose, stack on a `medicortex` bridge network:
+
+```
+┌─ Cloudflare proxy (TLS) ──────────────────────────────────────┐
+│   api.medicortex.<domain>  →  Hetzner :443                    │
+└──────────────────────────────────────┬────────────────────────┘
+                                       │
+                  ┌──────── Caddy (TLS termination, reverse-proxy) ────────┐
+                  │   /chat/*, /upload, /chats → orchestrator:8001         │
+                  │   /metrics                  → grafana-agent (optional) │
+                  └────────────────────────────────────────────────────────┘
+                                       │
+       ┌──────── orchestrator (FastAPI, uvicorn --workers 1) ────────┐
+       │   .env: NEON_DSN, UPSTASH_URL, R2_*, RUNPOD_MEDGEMMA_URL,   │
+       │         RUNPOD_OLLAMA_URL, ALLOWED_ORIGINS, DEBUG=false     │
+       └──┬──────────────────┬──────────────┬───────────────────────┘
+          │                  │              │
+   ┌──────▼──────┐    ┌──────▼──────┐  ┌────▼────────────┐
+   │ ArangoDB    │    │  (Neon)     │  │ (Upstash Redis) │
+   │ container   │    │  external   │  │   external      │
+   └─────────────┘    └─────────────┘  └─────────────────┘
+          │
+   ┌──────▼─────────────────────────┐    ┌──────────────────────────┐
+   │ daily arangodump → R2 (cron)   │    │ RunPod Serverless        │
+   └────────────────────────────────┘    │  • medgemma-1.5-4b-it    │
+                                         │  • gemma4:e2b (Ollama)   │
+                                         │  scale-to-zero, idle 5m  │
+                                         └──────────────────────────┘
+```
+
+### Migration Checklist (in order)
+
+The Critical and High tickets above already define the *what*. This is the *order* to execute them so nothing blocks deploy.
+
+**Phase 0 — Code prep (local, 1 day)**
+1. SEC-3 — strip default secrets, `DEBUG=False` default, add Pydantic validator. Move `Ollama API Key MediCortex-AI-2.0.txt` out of repo, add to `.gitignore`, rotate the key.
+2. DEPLOY-3 — `ALLOWED_ORIGINS` env var + CORS middleware fix.
+3. DEPLOY-4 — `VITE_API_BASE_URL` everywhere in frontend.
+4. SEC-1 — upload + download size caps.
+5. BUG-5 — disconnect-safe DB save in `event_generator`.
+
+**Phase 1 — RunPod (½ day)**
+6. Create RunPod Serverless template:
+   - Base: `ollama/ollama:latest` + custom entrypoint that `ollama pull medgemma-1.5-4b-it && ollama pull gemma4:e2b` on first boot, then `ollama serve`.
+   - Wrap with a thin FastAPI shim exposing `/predict` (MedGemma) on port 8000 — replicates current `medgemma-host` contract — and proxies `gemma4:e2b` calls through `OLLAMA_CLOUD_URL`.
+   - GPU: A4000 (16 GB) is sufficient for both models.
+   - Idle timeout: 5 min. Max workers: 2.
+7. Capture worker URL; set `MEDGEMMA_API_URL` and `OLLAMA_CLOUD_URL` to the RunPod endpoint(s).
+8. DEPLOY-2 — keepwarm ping in `lifespan()` (default every 4 min) + 30s timeout.
+
+**Phase 2 — External data services (1 hr)**
+9. Provision Neon project; copy DSN to `DATABASE_URL`. Run `python -m database.init_db`.
+10. Provision Upstash Redis; copy URL to `REDIS_URL`.
+11. Provision Cloudflare R2 bucket; create API token; replace MinIO settings:
+    - `MINIO_URL` → R2 S3 endpoint (`https://<account>.r2.cloudflarestorage.com`)
+    - `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` → R2 credentials
+    - `services/minio_service.py` works unchanged (S3-compatible). SEC-2 (1h TTL) lands here.
+
+**Phase 3 — Hetzner backend (½ day)**
+12. Provision Hetzner CPX21, Ubuntu 24.04, Falkenstein. Add SSH key only, disable password auth.
+13. Install Docker + Compose. Clone repo. Render `.env` from Doppler.
+14. `docker-compose.yml` services: `orchestrator`, `arangodb`, `caddy`. Use `restart: unless-stopped`.
+15. Caddyfile: auto-TLS on `api.medicortex.<domain>` → `orchestrator:8001`. (Or terminate at Cloudflare and use HTTP between Cloudflare and Caddy via a Cloudflare Tunnel for origin-IP hiding.)
+16. Run `python3 -m knowledge_core.build_fast_assets` once on the box; persist `knowledge_core/assets/` via a Docker volume.
+17. OPS-1 — apply pool sizing.
+18. OPS-3 — assert `WEB_CONCURRENCY=1` until Redis-backed `ACTIVE_STREAMS` lands.
+19. OPS-5 — `slowapi` rate limits.
+20. OBS-2 — `/livez` and `/readyz` split.
+
+**Phase 4 — Frontend on GitHub Pages (1 hr)**
+21. Add `.github/workflows/deploy-frontend.yml`:
+    ```yaml
+    on:
+      push: { branches: [main], paths: ['frontend/**'] }
+    jobs:
+      deploy:
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+          - uses: actions/setup-node@v4
+            with: { node-version: '20' }
+          - run: cd frontend && npm ci && npm run build
+            env:
+              VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+          - uses: peaceiris/actions-gh-pages@v3
+            with:
+              github_token: ${{ secrets.GITHUB_TOKEN }}
+              publish_dir: ./frontend/dist
+    ```
+22. Set repo secret `VITE_API_BASE_URL=https://api.medicortex.<domain>`.
+23. Configure custom domain on GitHub Pages (`medicortex.<domain>`) + CNAME at registrar.
+
+**Phase 5 — Verification (½ day)**
+24. Run Test Suite 7 (T7.1–T7.9) end-to-end against the deployed stack.
+25. Run an `EVAL-2` smoke pass against the live API (`pytest tests/integration/ -v`).
+26. Set up Better Stack heartbeat against `/livez` (60s interval) and Grafana Cloud log shipping from Caddy + orchestrator.
+
+**Phase 6 — Hardening (post-launch, while users use it)**
+27. OPS-2 — convert nodes to `async def` once a real concurrency issue is observed.
+28. OPS-3 — Redis-backed `ACTIVE_STREAMS` once `--workers 2+` is needed.
+29. OPS-4, OPS-6, OPS-7, BUG-6, BUG-7 — fix during normal iteration.
+30. OBS-1 — observability dashboard (Phase 7).
+
+### Rollback Plan
+
+- `docker compose down && git checkout <previous-tag> && docker compose up -d` on Hetzner.
+- GitHub Pages: revert via `actions/deploy-pages` history (one-click).
+- Neon: PITR to last good timestamp (free tier supports 24 h history).
+- RunPod: redeploy previous template version (templates are versioned).
+
+### Cost Sensitivity
+
+| Scenario | Monthly cost |
+|---|---|
+| 10 users, average usage (current target) | **$13–25** |
+| 10 users, idle (RunPod fully scaled to zero, no chats for 24 h) | **$8** (just Hetzner) |
+| 50 users (3× volume) | **$30–60** (RunPod scales linearly; Hetzner unchanged; Neon may need Launch tier) |
+| Drop RunPod, run models on the Hetzner box | infeasible — CPX21 has no GPU; would need GPU instance ($150+/mo) |
+
+**Recommendation:** start at the budget tier (CPX21 + Neon Free + Upstash Free + R2 Free + RunPod scale-to-zero), monitor `/readyz` latency and Neon storage; upgrade individual components only when measurably saturated.
+
+---
+
 ## Resolved
 
-#### SB-1 — Sidebar session previews show raw Markdown symbols
-**Fix verified 2026-03-26.** `### Type 2 Diabetes: Overview, Man...` → `Type 2 Diabetes: Overview, Man...`. `stripMarkdown()` helper in `Sidebar.tsx` strips `#+`, `**`, `*`, `__`, `_`, `` ` ``, `>`, and `- ` list markers before rendering the preview.
+#### RAG-1 — Agentic RAG for multi-turn conversation ✅ COMPLETE (2026-04-17)
+**Component:** `orchestrator.py`, `specialized_agents/base.py`
+**QA Report:** `qa/qa-report-rag1-2026-04-12.md`
+All three bugs resolved. Full test suite run 2026-04-17 — all blocking tests passed.
 
-#### AGG-5 — Tool-observation sources display raw URL as link text instead of page title
-**Fix verified 2026-03-26.** Metformin drug interaction query (Sources 13): sources [2], [3], [8]–[11] all show page titles (e.g. "Metformin: Package Insert / Prescribing Information / MOA", "Metformin: MedlinePlus Drug Information"). `_extract_sources_from_observation()` two-pass method in `base.py`: Pass 1 extracts `### N. Title` heading for each `- **URL:** url` line; Pass 2 falls back to bare URL regex for inline URLs not in structured format. Remaining raw-URL entries are CDN error redirects or inline bare URLs outside structured blocks — expected fallback behaviour.
+#### BUG-4 (Low) — Topic-shift entity injection reads wrong state field ✅ COMPLETE
+**File:** `orchestrator.py` → `node_retrieve_knowledge` (~line 331)
+- Parsed entity from `routing_context` instead of `state.get("context", [])` on topic-shift.
+- Added `"medication"`, `"medications"`, `"treatment"` to `followup_indicators`.
 
-#### UI-1 — No streaming progress indicator during long responses
-Added bouncing dots + "Generating response..." indicator in `MessageBubble.tsx`, shown when `isStreaming && !content && thinking.length > 0`. Verified working in browser during ~4 min MedGemma inference.
+#### BUG-1 (Critical) — MedGemma repetition loop during re-retrieved synthesis ✅ COMPLETE
+**File:** `specialized_agents/base.py` → `_plan_and_synthesize`
+- Added repetition guard in `_synthesize()`; falls back to Gemma 4 (`gemma4:e2b`) when loop detected.
+- Stripped KB placeholder strings from `context_str` before building `enhanced_input` at both agent run and re-retrieval sites.
+- Added no-op guard in `node_retrieve_knowledge_v2` when re-retrieved KB is also empty (`re_retrieval_skipped=True`).
+- Lowered `low_context` auto-trigger threshold from 200 → 50 chars in `_gather_tool_results`.
 
-#### UI-2 — Chat does not auto-scroll to latest message
-Implemented smart scroll in `ChatArea.tsx` using `isNearBottomRef`. Auto-scrolls only when within 100px of bottom; shows "↓ Scroll to bottom" button otherwise. Verified working in browser.
+#### BUG-2 (Medium) — Clarification branch never fires ✅ COMPLETE
+**File:** `orchestrator.py` → `node_retrieve_knowledge`
+- Expanded negative few-shot examples in extraction prompt (7 examples + RULE line).
+- Added post-extraction body-part filter using `_GENERIC_ANATOMY` set (22 terms).
 
-#### UI-4 — Page refresh on a chat URL loads blank empty state
-Seeded `currentSessionId` from `window.location.pathname` in `App.tsx` using a lazy `useState` initializer.
+#### BUG-3 (Medium) — Re-retrieval over-triggers on every query ✅ RESOLVED (2026-04-15)
+**File:** `knowledge_core/medical_engine.py`
+- Replaced `resolve_entity` with `_resolve_candidates`; correctly traverses `synonym_relations`.
+- `search_and_reason` iterates candidates until one has graph neighbors.
+- Added `tests/test_kb_retrieval.py` standalone verification script.
 
-#### UI-3 — Duplicate message bubbles on backend connection failure
-`catch` block now maps over messages to replace the placeholder (`aiMsgId`) instead of pushing a new error bubble.
+#### LLM-1 — Replace GPT-4o-mini with Gemma 4 (`gemma4:e2b`) via Ollama ✅ COMPLETE (2026-04-15)
+**Component:** `orchestrator.py`, `specialized_agents/base.py`, `specialized_agents/medgemma_llm.py`, `config.py`
+- All GPT-4o-mini usages replaced with `gemma4:e2b` via homeserver Ollama.
+- Switched `ChatOpenAI` → `ChatOllama` at all 4 instantiation sites.
+- Groq remains only for judge (`node_reviewer`).
 
-#### AGG-1 — Aggregator emits duplicate sections
-Added explicit deduplication rules to the `node_aggregator` system prompt in `orchestrator.py`: merge near-identical recommendations, keep only first occurrence of repeated source facts.
+#### SB-1 — Sidebar session previews show raw Markdown symbols ✅ RESOLVED (2026-03-26)
+`stripMarkdown()` helper in `Sidebar.tsx` strips heading/bold/italic/code/list markers before rendering preview.
 
-#### UI-6 — Chat switch during streaming breaks UI state
-**Fix verified 2026-03-25.** Switched away mid-stream; background stream accumulated 11+ thinking steps uninterrupted. Switched back: all steps visible, full response rendered, Verification & Metadata (Judge 4/5, 95% confidence) present. `sessionCache` ref + `bumpIfActive` pattern working correctly.
+#### AGG-5 — Tool-observation sources display raw URL as link text ✅ RESOLVED (2026-03-26)
+`_extract_sources_from_observation()` two-pass method in `base.py` extracts `### N. Title` headings; falls back to bare URL regex.
 
-#### UI-5 — Last messages scroll under the input bar and disclaimer
-**Fix verified 2026-03-25.** Loaded a long response and scrolled through all positions — content stops cleanly above the in-flow input bar at every scroll position. "Scroll to bottom" button appears correctly on scroll-up. No overlap observed.
+#### UI-1 — No streaming progress indicator ✅ RESOLVED
+Bouncing dots + "Generating response..." indicator in `MessageBubble.tsx`.
 
-#### AGG-2 — Sources not surfaced as a distinct UI element
-**Fix verified 2026-03-25.** PubMed query produced 5 cited sources. "Sources (5)" accordion appears between Verification & Metadata and the response body. Expanding it shows numbered blue hyperlinks with paper titles. `_parse_references()` strips `## References` from body correctly (confirmed 0 responses with raw references section in DB). Note: sources only appear when agents include `https://` URLs in their synthesized output — diagnosis/pharmacology agents currently don't (DOI-only); PubMed agent does reliably.
+#### UI-2 — Chat does not auto-scroll to latest message ✅ RESOLVED
+Smart scroll in `ChatArea.tsx` using `isNearBottomRef`; shows "↓ Scroll to bottom" button when not near bottom.
 
-#### AGG-3 — Tool-fetched URLs not surfaced in Sources accordion
-**Fix verified 2026-03-25.** Type 2 diabetes query (diagnosis + pharmacology agents) produced "Sources (22)" accordion showing all URLs fetched during ReAct tool loops — Mayo Clinic, WebMD, and others — even though the LLM prose contained no inline citations. `AgentResponse.sources` field populated via `_URL_RE` regex in `_gather_tool_results`; merged with `_parse_references` inline sources in streaming path.
+#### UI-4 — Page refresh on chat URL loads blank empty state ✅ RESOLVED
+Seeded `currentSessionId` from `window.location.pathname` via lazy `useState` initializer in `App.tsx`.
 
-#### AGG-4 — Aggregator response opens with a generic "Medical Agent Reports" title
-**Fix verified 2026-03-25.** Same type 2 diabetes query opened with **"Type 2 Diabetes: Overview, Management, and Recommendations"** — no "Medical Agent Reports" boilerplate. HEADING RULES block in `node_aggregator` prompt working correctly.
+#### UI-3 — Duplicate message bubbles on backend connection failure ✅ RESOLVED
+`catch` block maps over messages to replace placeholder instead of pushing new error bubble.
 
-#### UI-8 — Input bar overlaps welcome text during window resize in empty/new-chat state
-**Fix verified 2026-03-25.** Resized window to 800×400 — welcome icon, heading, description, and input bar all remain in their in-flow flex column with no overlap at any viewport height. Single `min-h-full justify-center gap-8` flex column layout in `ChatArea.tsx` replaces the old absolute-positioned approach.
+#### AGG-1 — Aggregator emits duplicate sections ✅ RESOLVED
+Explicit deduplication rules added to `node_aggregator` system prompt.
 
-#### UI-7 — UI refinement pass (partial)
-**Fix verified 2026-03-25.**
-- Thinking Process accordion: auto-expanded immediately when streaming started (before first token); auto-collapsed to `>` state once response completed. Verified via screenshot.
-- Sidebar last-message preview: each session entry shows title + truncated last-message preview on a second line. Lateral SQL subquery in `get_sessions` working correctly.
-- Input bar send button disabled during streaming: already implemented (`disabled={isLoading || isUploading}`).
-**Items not yet addressed:** spacing/padding tightening in `MessageBubble` for long Markdown; mobile viewport below 768px.
+#### UI-6 — Chat switch during streaming breaks UI state ✅ RESOLVED (2026-03-25)
+`sessionCache` ref + `bumpIfActive` pattern.
+
+#### UI-5 — Last messages scroll under the input bar ✅ RESOLVED (2026-03-25)
+Single `min-h-full justify-center gap-8` flex column layout in `ChatArea.tsx`.
+
+#### AGG-2 — Sources not surfaced as a distinct UI element ✅ RESOLVED (2026-03-25)
+"Sources (N)" accordion between Verification & Metadata and response body.
+
+#### AGG-3 — Tool-fetched URLs not surfaced in Sources accordion ✅ RESOLVED (2026-03-25)
+`AgentResponse.sources` populated via `_URL_RE` regex in `_gather_tool_results`; merged with inline sources.
+
+#### AGG-4 — Aggregator response opens with generic title ✅ RESOLVED (2026-03-25)
+HEADING RULES block in `node_aggregator` prompt.
+
+#### UI-8 — Input bar overlaps welcome text during resize ✅ RESOLVED (2026-03-25)
+In-flow flex column layout replaces old absolute-positioned approach.
+
+#### UI-7 — UI refinement pass ✅ RESOLVED (2026-03-25)
+Thinking Process auto-expand/collapse, sidebar last-message preview, send button disabled during streaming.

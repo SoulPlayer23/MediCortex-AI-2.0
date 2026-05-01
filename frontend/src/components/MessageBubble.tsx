@@ -3,17 +3,18 @@ import ReactMarkdown from 'react-markdown';
 import clsx from 'clsx';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { ChevronDown, ChevronRight, BrainCircuit, BookOpen } from 'lucide-react';
+import { ChevronDown, ChevronRight, BrainCircuit, BookOpen, File } from 'lucide-react';
 
 interface MessageBubbleProps {
     role: 'user' | 'assistant';
     content: string;
+    attachments?: any[];
     thinking?: string[];
     metadata?: any;
     isStreaming?: boolean;
 }
 
-const MessageBubble = ({ role, content, thinking, metadata, isStreaming }: MessageBubbleProps) => {
+const MessageBubble = ({ role, content, attachments, thinking, metadata, isStreaming }: MessageBubbleProps) => {
     const isUser = role === 'user';
     const [isThinkingOpen, setIsThinkingOpen] = useState(false);
     const [isMetadataOpen, setIsMetadataOpen] = useState(false);
@@ -52,6 +53,24 @@ const MessageBubble = ({ role, content, thinking, metadata, isStreaming }: Messa
                     <div className="font-semibold text-sm text-zinc-300 mb-1.5 opacity-90">
                         {isUser ? "You" : "MediCortex"}
                     </div>
+
+                    {/* Attachments (user messages only) */}
+                    {isUser && attachments && attachments.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mb-3">
+                            {attachments.map((file, idx) => (
+                                <a
+                                    key={idx}
+                                    href={file.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-2 bg-zinc-700/60 hover:bg-zinc-700 px-3 py-2 rounded-lg text-xs text-zinc-200 border border-white/10 shadow-sm transition-colors"
+                                >
+                                    <File className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                                    <span className="truncate max-w-[200px]">{file.filename}</span>
+                                </a>
+                            ))}
+                        </div>
+                    )}
 
                     {/* Thinking Process (Accordion) — only shown when thoughts exist, hidden for clarification responses */}
                     {!isUser && thinking && thinking.length > 0 && !metadata?.is_clarification && (

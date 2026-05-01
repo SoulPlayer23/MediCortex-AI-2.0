@@ -2,16 +2,20 @@
 import os
 import sys
 import re
+import ast
 import random
+import asyncio
 import structlog
-from typing import Dict, TypedDict, List, Optional, Tuple, Annotated
+from typing import Any, Dict, TypedDict, List, Optional, Tuple, Annotated
 import operator
 import json
 import uvicorn
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
-from fastapi.responses import StreamingResponse
+import requests
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form, Request
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text as sa_text
 from contextlib import asynccontextmanager
 
 # Local Imports
@@ -330,18 +334,29 @@ def node_retrieve_knowledge(state: AgentState):
     routing_context = state.get("routing_context") or ""
     if not entities and routing_context:
         followup_indicators = ("side effect", "what about", "tell me more", "more about",
-                               "also", "and what", "interactions", "dosage", "risk")
+                               "also", "and what", "interactions", "dosage", "risk",
+                               "medication", "medications", "treatment")
         query_lower = user_query.lower()
         if any(indicator in query_lower for indicator in followup_indicators):
-            # Extract most recent entity from prior KB context if available
-            prior_context = state.get("context", [])
-            for ctx in reversed(prior_context):
-                import re as _re
-                m = _re.search(r'\[KB:\s*([^\]]+)\]', ctx)
-                if m:
-                    entities = [m.group(1).strip()]
-                    logger.info("Topic-shift detected, injecting prior entity", entity=entities[0])
-                    break
+            # Parse the most recent entity from routing_context "User asked:" lines.
+            # state.get("context", []) is always empty at the start of a new turn.
+            import re as _re
+            for line in reversed(routing_context.splitlines()):
+                if line.startswith("User asked:"):
+                    query_text = line[len("User asked:"):].strip()
+                    # Skip vague lines (no alphabetic content beyond stop-words)
+                    _STOP = {"what", "are", "the", "a", "an", "is", "tell", "me",
+                             "about", "my", "i", "do", "does", "how", "for", "of",
+                             "in", "on", "m", "s", "t"}
+                    _PRESIDIO = {"PERSON", "LOCATION", "DATE_TIME", "NRP", "ORG",
+                                 "PHONE_NUMBER", "EMAIL_ADDRESS", "IP_ADDRESS"}
+                    words = [w for w in _re.findall(r"[a-zA-Z]+", query_text)
+                             if w not in _PRESIDIO and w.lower() not in _STOP]
+                    if words:
+                        entities = [" ".join(words[:3])]
+                        logger.info("Topic-shift detected, injecting entity from routing_context",
+                                    entity=entities[0])
+                        break
 
     if not entities:
         retrieval_ambiguous = True
@@ -353,14 +368,63 @@ def node_retrieve_knowledge(state: AgentState):
             "retrieval_feedback": [],
         }
 
+    # Query expansion: for each extracted entity, ask Gemma4 for clinical synonyms
+    # and related terms so we cast a wider net across the KG. Caps at 10 total
+    # unique terms to keep ArangoDB round-trips bounded.
+    _MAX_EXPANDED_TERMS = 10
+    _expansion_prompt = (
+        "You are a medical terminology expert. Given a clinical entity, return a JSON array "
+        "of 4 alternative terms: synonyms, abbreviations, related conditions, or drug class names "
+        "that a medical knowledge graph might store separately. "
+        "Return ONLY the JSON array, no prose. Do not repeat the input term.\n\n"
+        "Examples:\n"
+        "Input: metformin -> [\"biguanide\", \"glucophage\", \"oral hypoglycemic\", \"type 2 diabetes medication\"]\n"
+        "Input: heart failure -> [\"cardiac failure\", \"CHF\", \"congestive heart failure\", \"cardiomyopathy\"]\n"
+        "Input: hypertension -> [\"high blood pressure\", \"HTN\", \"arterial hypertension\", \"elevated BP\"]\n"
+        "Input: {entity}"
+    )
+
+    expanded_terms: list[str] = []
+    seen_for_expansion: set[str] = {e.lower() for e in entities}
+    _extr = extractor_llm or llm
+    for entity in entities:
+        expanded_terms.append(entity)  # always include the original
+        if len(expanded_terms) >= _MAX_EXPANDED_TERMS:
+            break
+        try:
+            raw_exp = _extr.invoke([
+                HumanMessage(content=_expansion_prompt.format(entity=entity))
+            ]).content.strip()
+            clean_exp = raw_exp.replace("```json", "").replace("```", "").strip()
+            parsed_exp = json.loads(clean_exp)
+            if isinstance(parsed_exp, list):
+                for alt in parsed_exp:
+                    if isinstance(alt, str) and alt.lower() not in seen_for_expansion:
+                        seen_for_expansion.add(alt.lower())
+                        expanded_terms.append(alt)
+                        if len(expanded_terms) >= _MAX_EXPANDED_TERMS:
+                            break
+        except Exception as exp_err:
+            logger.warning("Query expansion failed for entity", entity=entity, error=str(exp_err))
+
+    logger.info("KB query expansion", original=entities, expanded=expanded_terms)
+
     context_sections = []
     session_id = state.get("session_id")
-    for term in entities:
+    if session_id and session_id in ACTIVE_STREAMS:
+        ACTIVE_STREAMS[session_id].append(
+            f"Querying Knowledge Core: **{', '.join(entities)}** (+{len(expanded_terms) - len(entities)} expanded terms)"
+        )
+    for term in expanded_terms:
         logger.info("KB lookup", term=term)
-        if session_id and session_id in ACTIVE_STREAMS:
-            ACTIVE_STREAMS[session_id].append(f"Querying Knowledge Core: **{term}**")
         raw_facts = consult_medical_knowledge.invoke(term)
-        context_sections.append(_refine_kb_context(term, raw_facts))
+        section = _refine_kb_context(term, raw_facts)
+        # Only include sections with real data — don't pad context with empty placeholders
+        if not _kb_context_is_empty([section]):
+            context_sections.append(section)
+
+    if not context_sections:
+        context_sections = [f"[KB: {', '.join(entities)}]\n{_KB_EMPTY_SENTINEL}"]
 
     return {
         "context": context_sections,
@@ -384,18 +448,56 @@ def node_retrieve_knowledge_v2(state: AgentState):
         return {"retrieval_iteration": state.get("retrieval_iteration", 0) + 1}
 
     new_sections = []
-    seen_terms = set()
+    seen_terms: set[str] = set()
     session_id = state.get("session_id")
+
+    # Collect seed terms from agent feedback, then expand each with Gemma4 synonyms.
+    _MAX_RERETRIEVAL_TERMS = 10
+    _extr = extractor_llm or llm
+    _expansion_prompt = (
+        "You are a medical terminology expert. Given a clinical entity, return a JSON array "
+        "of 4 alternative terms: synonyms, abbreviations, related conditions, or drug class names "
+        "that a medical knowledge graph might store separately. "
+        "Return ONLY the JSON array, no prose. Do not repeat the input term.\n\n"
+        "Input: {entity}"
+    )
+
+    expanded_terms: list[str] = []
     for fb in feedback:
         term = fb.get("refined_query")
-        if not term or term in seen_terms:
+        if not term or term.lower() in seen_terms:
             continue
-        seen_terms.add(term)
-        logger.info("Re-retrieval KB lookup", term=term, agent=fb.get("agent"))
-        if session_id and session_id in ACTIVE_STREAMS:
-            ACTIVE_STREAMS[session_id].append(f"Re-querying Knowledge Core: **{term}**")
+        seen_terms.add(term.lower())
+        expanded_terms.append(term)
+        if len(expanded_terms) >= _MAX_RERETRIEVAL_TERMS:
+            break
+        try:
+            raw_exp = _extr.invoke([
+                HumanMessage(content=_expansion_prompt.format(entity=term))
+            ]).content.strip()
+            clean_exp = raw_exp.replace("```json", "").replace("```", "").strip()
+            parsed_exp = json.loads(clean_exp)
+            if isinstance(parsed_exp, list):
+                for alt in parsed_exp:
+                    if isinstance(alt, str) and alt.lower() not in seen_terms:
+                        seen_terms.add(alt.lower())
+                        expanded_terms.append(alt)
+                        if len(expanded_terms) >= _MAX_RERETRIEVAL_TERMS:
+                            break
+        except Exception:
+            pass
+
+    if session_id and session_id in ACTIVE_STREAMS:
+        ACTIVE_STREAMS[session_id].append(
+            f"Re-querying Knowledge Core: **{', '.join(expanded_terms[:3])}**{'...' if len(expanded_terms) > 3 else ''}"
+        )
+
+    for term in expanded_terms:
+        logger.info("Re-retrieval KB lookup", term=term)
         raw_facts = consult_medical_knowledge.invoke(term)
-        new_sections.append(_refine_kb_context(term, raw_facts))
+        section = _refine_kb_context(term, raw_facts)
+        if not _kb_context_is_empty([section]):
+            new_sections.append(section)
 
     # If every re-retrieved section is also a placeholder, the KB genuinely has
     # no data for this query.  Skipping the agent re-run avoids passing a
@@ -462,7 +564,14 @@ def node_router(state: AgentState):
         "Do NOT add any explanation. Only output the JSON array."
     )
 
+    file_urls = state.get("file_urls") or []
+    file_note = (
+        f"Attached Files: {len(file_urls)} file(s) uploaded by the user. "
+        f"Route to 'report_analyzer' — the user is asking about these files.\n\n"
+        if file_urls else ""
+    )
     user_message = (
+        f"{file_note}"
         f"User Query: {input_text}\n\n"
         + (f"Recent Session Context (use this to resolve follow-up references):\n{routing_context}\n\n"
            if routing_context else "")
@@ -487,7 +596,9 @@ def node_router(state: AgentState):
     # AND the previous turn was NOT already a clarification, ask the user to elaborate.
     # We suppress a second clarification by checking routing_context for "AI asked for clarification".
     already_clarified = "AI asked for clarification" in routing_context
-    if state.get("retrieval_ambiguous") and not already_clarified:
+    # Suppress clarification when the router already decided on report_analyzer (file is the context)
+    report_analyzer_routed = "report_analyzer" in routes
+    if state.get("retrieval_ambiguous") and not already_clarified and not report_analyzer_routed:
         clarification_prompt = (
             "The user's medical query is ambiguous — no specific medical entities could be identified. "
             "Generate ONE short, empathetic clarifying question to ask the user so you can give a "
@@ -552,9 +663,15 @@ def make_agent_node(agent_key: str):
             enhanced_input += "\n\nFiles to analyze:\n" + "\n".join(state["file_urls"])
 
         # A2A Protocol: Create Envelope with trace_id propagation (A2A §5.1)
+        # OPS-6: idempotency key derived from content so retries of the same
+        # message in the same session hit the cache instead of always missing.
+        import hashlib as _hashlib
+        _idem_src = f"{state.get('session_id','')}{agent_key}{enhanced_input}"
+        _idem_key = _hashlib.sha256(_idem_src.encode()).hexdigest()
         try:
             envelope = Envelope(
                 trace_id=state.get("trace_id", ""),
+                idempotency_key=_idem_key,
                 sender_id="orchestrator",
                 receiver_id=agent_key,
                 payload={"input": enhanced_input},
@@ -657,8 +774,10 @@ def node_aggregator_with_reretrieval(state: AgentState):
     iteration = state.get("retrieval_iteration", 0)
 
     extra_outputs: list = []
+    re_retrieval_ran = False
     if feedback and iteration < 1:
         logger.info("Reactive re-retrieval triggered", feedback=feedback)
+        re_retrieval_ran = True
         reretrieval_result = node_retrieve_knowledge_v2(state)
 
         # If re-retrieval found no new KB data, skip the agent re-run entirely.
@@ -691,8 +810,12 @@ def node_aggregator_with_reretrieval(state: AgentState):
                     f"Current Request: {state['redacted_input']}"
                     + (f"\n\nContext from Knowledge Core (enriched):\n{context_str}" if context_str else "")
                 )
+                import hashlib as _hashlib
+                _idem_src = f"{state.get('session_id','')}{agent_key}{enhanced_input}"
+                _idem_key = _hashlib.sha256(_idem_src.encode()).hexdigest()
                 envelope = Envelope(
                     trace_id=state.get("trace_id", ""),
+                    idempotency_key=_idem_key,
                     sender_id="orchestrator",
                     receiver_id=agent_key,
                     payload={"input": enhanced_input},
@@ -745,7 +868,12 @@ def node_aggregator_with_reretrieval(state: AgentState):
     except Exception:
         formatted = raw_outputs
 
-    return {"final_output": formatted}
+    # BUG-6: propagate re-retrieval iteration count back through LangGraph state
+    # so the streaming endpoint can persist it in message_metadata.retrieval_iterations.
+    out: Dict[str, Any] = {"final_output": formatted}
+    if re_retrieval_ran:
+        out["retrieval_iteration"] = iteration + 1
+    return out
 
 
 def _parse_references(text: str) -> tuple[str, list[dict]]:
@@ -799,6 +927,34 @@ def node_reviewer(state: AgentState):
         truncated += "\n...[truncated for evaluation]"
 
     original_query = state.get("redacted_input", "")
+    history = state.get("history", [])
+    history_str = "\n".join(history[-6:]) if history else ""  # last 3 turns (user+assistant each)
+
+    conversation_block = (
+        f"Conversation History (last turns):\n{history_str}\n\n" if history_str else ""
+    )
+
+    agents_used = state.get("agents_used", [])
+    agents_str = ", ".join(agents_used) if agents_used else "unknown"
+
+    # ── Include document analyzer output when files were attached ─────
+    # The judge needs access to what was actually extracted from the document
+    # to verify that the final response accurately reflects the report content.
+    file_urls = state.get("file_urls") or []
+    agent_outputs: list = state.get("agent_outputs") or []
+    doc_context_block = ""
+    if file_urls and agent_outputs:
+        doc_outputs = [
+            o for o in agent_outputs
+            if "report_analyzer" in o.lower() or "## full document analysis" in o.lower()
+        ]
+        if doc_outputs:
+            # Budget: reserve up to 40% of token budget for document context
+            doc_budget = (max_chars * 4) // 10  # chars
+            doc_combined = "\n\n---\n\n".join(doc_outputs)[:doc_budget]
+            doc_context_block = (
+                f"Document Analysis (extracted from attached file):\n{doc_combined}\n\n"
+            )
 
     judge_prompt = f"""You are a clinical quality reviewer for a medical AI assistant.
 
@@ -810,12 +966,15 @@ Evaluate the following response on a scale of 1–5:
 5 = Excellent — accurate, complete, evidence-based, safe for clinical context
 
 Criteria to check:
-- Does the response address the user's query?
+- Does the response address the user's query IN THE CONTEXT of the conversation history?
 - Are all clinical claims grounded in tool outputs (no fabricated facts)?
 - Does the response contain leaked PII placeholders (e.g. <PERSON_1>)? NOTE: placeholders like <PERSON_1> are intentional de-identification tokens used by the privacy layer and are NOT a quality defect — do NOT penalise the score for their presence.
 - Is the response safe for a medical assistant context?
+- Does the response maintain continuity with prior turns in the conversation?
+- When a document was attached: does the response accurately reflect the extracted document content without omitting key findings?
+- Agents that generated this response: {agents_str}
 
-User Query: {original_query}
+{conversation_block}{doc_context_block}Current User Query: {original_query}
 
 Response to evaluate:
 {truncated}
@@ -884,16 +1043,58 @@ def node_restore_privacy(state: AgentState):
 # A2A §4.1 — Maximum agents per request (circuit breaker)
 MAX_CONCURRENT_AGENTS = 3
 
+def _parse_route_list(raw: str) -> Optional[list]:
+    """BUG-7 — Tolerant parser for the router's route output.
+
+    The router LLM may emit single-quoted Python-style lists, JSON, or
+    surround the list with extra prose. Try, in order:
+      1. ast.literal_eval (handles both "[...]"/'[...]' and Python list syntax)
+      2. json.loads after a naive ' → " swap
+      3. Regex fallback that pulls the first [...] substring out and retries.
+    Returns the parsed list or None if nothing usable is found.
+    """
+    if not isinstance(raw, str):
+        return None
+    candidate = raw.strip()
+    # Strip code fences the model occasionally adds.
+    candidate = candidate.replace("```json", "").replace("```", "").strip()
+
+    for attempt in (candidate, candidate.replace("'", '"')):
+        try:
+            parsed = ast.literal_eval(attempt)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+        try:
+            parsed = json.loads(attempt)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+
+    m = re.search(r"\[[^\[\]]*\]", candidate)
+    if m:
+        inner = m.group(0)
+        try:
+            parsed = ast.literal_eval(inner)
+            if isinstance(parsed, list):
+                return parsed
+        except Exception:
+            pass
+    return None
+
+
 def route_decision(state: AgentState):
     last_msg = state["messages"][-1].content
 
-    # Clarification early-exit: router set this when query was too vague
-    try:
-        parsed = json.loads(last_msg.replace("'", '"'))
-        if isinstance(parsed, list) and parsed == ["__clarify__"]:
+    # Clarification early-exit: detect the sentinel robustly. We require BOTH
+    # the substring AND a parseable list with exactly the sentinel — substring
+    # alone could appear inside an unrelated explanation the model emitted.
+    if "__clarify__" in last_msg:
+        parsed = _parse_route_list(last_msg)
+        if parsed == ["__clarify__"]:
             return ["__clarify__"]
-    except Exception:
-        pass
 
     routes = []
 
@@ -901,13 +1102,10 @@ def route_decision(state: AgentState):
     if state.get("file_urls"):
         routes.append("report_analyzer")
 
-    try:
-        llm_routes = json.loads(last_msg.replace("'", '"'))
-        for r in llm_routes:
-            if r in AGENT_REGISTRY and r not in routes:
-                routes.append(r)
-    except Exception:
-        pass
+    llm_routes = _parse_route_list(last_msg) or []
+    for r in llm_routes:
+        if r in AGENT_REGISTRY and r not in routes:
+            routes.append(r)
 
     # A2A §4.1 — Circuit breaker: cap concurrent agent calls
     valid_routes = [r for r in routes if r in AGENT_REGISTRY][:MAX_CONCURRENT_AGENTS]
@@ -953,6 +1151,50 @@ def _build_routing_context(past_turns) -> str:
 # 🌐 FASTAPI SERVER
 # ==========================================
 from fastapi.middleware.cors import CORSMiddleware
+
+# OPS-5: optional rate limiting via slowapi. Imported defensively so the
+# module still works in test environments that don't have slowapi installed.
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.util import get_remote_address
+    from slowapi.errors import RateLimitExceeded
+
+    limiter = Limiter(key_func=get_remote_address, enabled=settings.RATELIMIT_ENABLED)
+    _SLOWAPI_AVAILABLE = True
+except Exception:
+    limiter = None
+    RateLimitExceeded = Exception  # type: ignore[assignment,misc]
+    _SLOWAPI_AVAILABLE = False
+
+
+# DEPLOY-2: background keepwarm pinger for RunPod-hosted MedGemma.
+# Returns the asyncio.Task so lifespan() can cancel it on shutdown.
+def _start_keepwarm_task() -> Optional[asyncio.Task]:
+    if not settings.MEDGEMMA_KEEPWARM_URL:
+        return None
+
+    interval = settings.MEDGEMMA_KEEPWARM_INTERVAL_SECONDS
+
+    async def _ping_loop():
+        headers = {}
+        if settings.RUNPOD_API_KEY:
+            headers["Authorization"] = f"Bearer {settings.RUNPOD_API_KEY}"
+        loop = asyncio.get_event_loop()
+        while True:
+            try:
+                # Run the blocking call in the default executor so we don't
+                # block the event loop during a long cold start.
+                await loop.run_in_executor(
+                    None,
+                    lambda: requests.get(settings.MEDGEMMA_KEEPWARM_URL, headers=headers, timeout=10),
+                )
+                logger.info("MedGemma keepwarm ping ok")
+            except Exception as e:
+                logger.warning("MedGemma keepwarm ping failed", error=str(e))
+            await asyncio.sleep(interval)
+
+    return asyncio.create_task(_ping_loop())
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1040,6 +1282,28 @@ async def lifespan(app: FastAPI):
     orchestrator_graph = workflow.compile()
     logger.info("Orchestrator Graph Compiled", status="success")
 
+    # ── OPS-3: enforce single-worker invariant (ACTIVE_STREAMS is process-local) ─
+    web_concurrency_env = os.environ.get("WEB_CONCURRENCY", str(settings.WEB_CONCURRENCY))
+    try:
+        if int(web_concurrency_env) != 1:
+            logger.warning(
+                "ACTIVE_STREAMS is process-local — running with WEB_CONCURRENCY>1 will "
+                "drop SSE thoughts from sibling workers. Use --workers 1 until "
+                "Redis-backed streams are wired (see Todo.md OPS-3).",
+                web_concurrency=web_concurrency_env,
+            )
+    except ValueError:
+        pass
+
+    # ── DEPLOY-2: RunPod keepwarm background task ──────────────────────
+    keepwarm_task = _start_keepwarm_task()
+    if keepwarm_task:
+        logger.info(
+            "MedGemma keepwarm scheduled",
+            url=settings.MEDGEMMA_KEEPWARM_URL,
+            interval_seconds=settings.MEDGEMMA_KEEPWARM_INTERVAL_SECONDS,
+        )
+
     # ── Ready ──────────────────────────────────────────────────────────
     logger.info("Starting Orchestrator Server", app_name=settings.APP_NAME)
     logger.info("Database Schema Managed externally")
@@ -1047,42 +1311,79 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    if keepwarm_task:
+        keepwarm_task.cancel()
+        try:
+            await keepwarm_task
+        except (asyncio.CancelledError, Exception):
+            pass
     logger.info("Shutting down")
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
 
+# OPS-5: register slowapi limiter + 429 handler if available.
+if _SLOWAPI_AVAILABLE and limiter is not None:
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# DEPLOY-3: explicit allowlist replaces wildcard. The SettingsValidator in
+# config.py rejects "*" when DEBUG=False, so this is safe to leave dynamic.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=settings.ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+def _ratelimit(rule: str):
+    """No-op decorator when slowapi is unavailable; otherwise applies the rate."""
+    if _SLOWAPI_AVAILABLE and limiter is not None:
+        return limiter.limit(rule)
+    def _identity(fn):
+        return fn
+    return _identity
+
+
 @app.post("/chat/stream")
-async def chat_stream_endpoint(request: ChatRequest, db: AsyncSession = Depends(get_db)):
+@_ratelimit(settings.RATELIMIT_CHAT_STREAM)
+async def chat_stream_endpoint(request: Request, body: ChatRequest, db: AsyncSession = Depends(get_db)):
     """
     Streaming chat endpoint for Server-Sent Events (SSE).
     Sends 'thought' events for agent reasoning and 'response' event for final output.
     """
+    # BUG-5: track whether the LangGraph result was fully computed and not yet
+    # persisted, so the finally block can still save the assistant message
+    # even if the SSE generator was cancelled by a client disconnect.
+    persistence_state: Dict[str, Any] = {
+        "session_id": None,
+        "saved": False,
+        "final_output": "",
+        "agent_thoughts": [],
+        "msg_metadata": None,
+    }
+
     async def event_generator():
+        session_id = None
         try:
-            logger.info("Received streaming chat request", message_length=len(request.message))
-            
+            logger.info("Received streaming chat request", message_length=len(body.message))
+
             # 1. Create/Get Session
-            session_id = request.session_id
+            session_id = body.session_id
             if not session_id:
                 new_session = await chat_service.create_session(db)
                 session_id = new_session.id
                 yield f"data: {json.dumps({'type': 'session_id', 'content': str(session_id)})}\n\n"
+
+            persistence_state["session_id"] = session_id
             
             # 2. Extract file URLs from attachments (structured handoff to report agent)
-            file_urls = [a["url"] for a in (request.attachments or []) if a.get("url")]
+            file_urls = [a["url"] for a in (body.attachments or []) if a.get("url")]
 
             # 3. Save User Message (with attachments for display)
             await chat_service.add_message(
-                db, str(session_id), "user", request.message,
-                attachments=request.attachments or [],
+                db, str(session_id), "user", body.message,
+                attachments=body.attachments or [],
             )
 
             # 4. Retrieve History
@@ -1119,7 +1420,7 @@ async def chat_stream_endpoint(request: ChatRequest, db: AsyncSession = Depends(
                 try:
                     result = await orchestrator_graph.ainvoke(
                         {
-                            "input": request.message,
+                            "input": body.message,
                             "messages": [],
                             "history": history_context,
                             "routing_context": routing_context,
@@ -1201,45 +1502,92 @@ async def chat_stream_endpoint(request: ChatRequest, db: AsyncSession = Depends(
                 if all_sources:
                     msg_metadata["sources"] = all_sources
 
+            # BUG-5: stage the final result for finally-block persistence FIRST,
+            # so even if the client disconnects between this point and [DONE],
+            # the message is saved on cleanup.
+            persistence_state["final_output"] = final_output
+            persistence_state["agent_thoughts"] = agent_thoughts
+            persistence_state["msg_metadata"] = msg_metadata
+
             yield f"data: {json.dumps({'type': 'metadata', 'content': msg_metadata})}\n\n"
 
             if final_output:
                 yield f"data: {json.dumps({'type': 'response', 'content': final_output})}\n\n"
 
-            # 5. Save AI Response to DB (only once)
+            # 5. Save AI Response to DB (only once). Mark saved so the finally
+            # block does not double-write on a clean exit.
             if final_output:
-                 await chat_service.add_message(db, str(session_id), "assistant", final_output, thinking=agent_thoughts, metadata=msg_metadata)
-            
+                await chat_service.add_message(
+                    db, str(session_id), "assistant", final_output,
+                    thinking=agent_thoughts, metadata=msg_metadata,
+                )
+                persistence_state["saved"] = True
+
             yield "data: [DONE]\n\n"
 
+        except (asyncio.CancelledError, GeneratorExit):
+            # BUG-5: client disconnected mid-stream. Re-raise after finally
+            # so FastAPI cleans up properly.
+            logger.info("client disconnected — persisting completed graph result if available", session_id=str(session_id) if session_id else None)
+            raise
         except Exception as e:
             logger.error("Streaming error", error=str(e))
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            try:
+                yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            except Exception:
+                pass
         finally:
-            if str(session_id) in ACTIVE_STREAMS:
-                del ACTIVE_STREAMS[str(session_id)]
+            sid = session_id or persistence_state.get("session_id")
+            if sid and str(sid) in ACTIVE_STREAMS:
+                del ACTIVE_STREAMS[str(sid)]
+
+            # BUG-5: persist the assistant message even on disconnect, as long
+            # as the LangGraph pipeline finished and we haven't saved yet.
+            if (
+                sid
+                and not persistence_state["saved"]
+                and persistence_state["final_output"]
+            ):
+                try:
+                    await chat_service.add_message(
+                        db,
+                        str(sid),
+                        "assistant",
+                        persistence_state["final_output"],
+                        thinking=persistence_state["agent_thoughts"],
+                        metadata=persistence_state["msg_metadata"] or {},
+                    )
+                    persistence_state["saved"] = True
+                    logger.info("post-disconnect save completed", session_id=str(sid))
+                except Exception as save_err:
+                    logger.error(
+                        "post-disconnect DB save failed",
+                        session_id=str(sid),
+                        error=str(save_err),
+                    )
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest, db: AsyncSession = Depends(get_db)):
+@_ratelimit(settings.RATELIMIT_CHAT)
+async def chat_endpoint(request: Request, body: ChatRequest, db: AsyncSession = Depends(get_db)):
     """
     Legacy non-streaming chat endpoint.
     """
     try:
-        logger.info("Received chat request", message_length=len(request.message))
-        
+        logger.info("Received chat request", message_length=len(body.message))
+
         # 1. Create session if not provided
-        session_id = request.session_id
+        session_id = body.session_id
         if not session_id:
             new_session = await chat_service.create_session(db)
             session_id = new_session.id
-            
+
         # 2. Extract file URLs and save user message with attachments
-        file_urls = [a["url"] for a in (request.attachments or []) if a.get("url")]
+        file_urls = [a["url"] for a in (body.attachments or []) if a.get("url")]
         await chat_service.add_message(
-            db, str(session_id), "user", request.message,
-            attachments=request.attachments or [],
+            db, str(session_id), "user", body.message,
+            attachments=body.attachments or [],
         )
 
         # 3. Retrieve History for Context
@@ -1252,7 +1600,7 @@ async def chat_endpoint(request: ChatRequest, db: AsyncSession = Depends(get_db)
 
         # 4. Invoke Orchestrator
         result = await orchestrator_graph.ainvoke({
-            "input": request.message,
+            "input": body.message,
             "messages": [],
             "history": history_context,
             "routing_context": routing_context,
@@ -1305,20 +1653,124 @@ async def get_chat_history(session_id: str, db: AsyncSession = Depends(get_db)):
     return await chat_service.get_messages(db, session_id)
 
 @app.post("/upload", response_model=UploadResponse)
-async def upload_file(file: UploadFile = File(...)):
-    """Upload file to MinIO"""
+@_ratelimit(settings.RATELIMIT_UPLOAD)
+async def upload_file(request: Request, file: UploadFile = File(...)):
+    """Upload file to MinIO with SEC-1 size cap."""
+    _ = request
     try:
-        content = await file.read()
+        # SEC-1: read up to MAX_UPLOAD_BYTES + 1; if we exceed the cap, reject.
+        # Reading bounded prevents a malicious client from forcing the worker
+        # to buffer an unbounded payload into RAM (DoS / OOM vector).
+        cap = settings.MAX_UPLOAD_BYTES
+        content = await file.read(cap + 1)
+        if len(content) > cap:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large (max {cap // (1024 * 1024)} MB)",
+            )
         url = await minio_service.upload_file(content, file.filename, file.content_type)
         if not url:
             raise HTTPException(status_code=500, detail="Upload failed")
         return UploadResponse(url=url, filename=file.filename)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("Upload error", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ── OBS-2: liveness + readiness probes ──────────────────────────────
+async def _check_postgres() -> bool:
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(sa_text("SELECT 1"))
+        return True
+    except Exception as e:
+        logger.warning("readyz: postgres check failed", error=str(e))
+        return False
+
+
+def _check_ollama() -> bool:
+    try:
+        base = settings.OLLAMA_CLOUD_URL.removesuffix("/v1")
+        resp = requests.get(f"{base}/api/tags", timeout=5)
+        return resp.status_code == 200
+    except Exception as e:
+        logger.warning("readyz: ollama check failed", error=str(e))
+        return False
+
+
+def _check_medgemma() -> bool:
+    if not settings.MEDGEMMA_API_URL:
+        return True  # not configured = not required
+    try:
+        # Probe the matching health endpoint without forcing a generation.
+        if _looks_like_runpod_url(settings.MEDGEMMA_API_URL):
+            # RunPod endpoints don't expose /health on /runsync; skip and trust keepwarm.
+            return True
+        probe = settings.MEDGEMMA_API_URL.replace("/predict", "/health")
+        headers = {}
+        if settings.RUNPOD_API_KEY:
+            headers["Authorization"] = f"Bearer {settings.RUNPOD_API_KEY}"
+        resp = requests.get(probe, headers=headers, timeout=5)
+        return resp.status_code < 500
+    except Exception as e:
+        logger.warning("readyz: medgemma check failed", error=str(e))
+        return False
+
+
+def _looks_like_runpod_url(url: str) -> bool:
+    return "runpod.ai" in url.lower()
+
+
+def _check_redis() -> bool:
+    try:
+        import redis as _redis
+        c = _redis.from_url(
+            settings.REDIS_URL,
+            socket_timeout=settings.REDIS_SOCKET_TIMEOUT,
+            socket_connect_timeout=settings.REDIS_SOCKET_TIMEOUT,
+        )
+        return bool(c.ping())
+    except Exception as e:
+        logger.warning("readyz: redis check failed", error=str(e))
+        return False
+
+
+@app.get("/livez")
+async def livez():
+    """Liveness probe — does the process respond? Used by uptime monitoring."""
+    return {"status": "alive"}
+
+
+@app.get("/readyz")
+async def readyz():
+    """Readiness probe — are all critical dependencies reachable?
+
+    Returns 200 when every gate is green; 503 with a per-component breakdown
+    otherwise. Suitable for monitoring (Better Stack, Uptime Kuma) and for
+    RunPod / load-balancer readiness gating.
+    """
+    loop = asyncio.get_event_loop()
+    pg_ok = await _check_postgres()
+    ollama_ok = await loop.run_in_executor(None, _check_ollama)
+    medgemma_ok = await loop.run_in_executor(None, _check_medgemma)
+    redis_ok = await loop.run_in_executor(None, _check_redis)
+
+    components = {
+        "postgres": pg_ok,
+        "ollama": ollama_ok,
+        "medgemma": medgemma_ok,
+        "redis": redis_ok,
+    }
+    healthy = all(components.values())
+    payload = {"status": "ready" if healthy else "degraded", "components": components}
+    return JSONResponse(content=payload, status_code=200 if healthy else 503)
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health():
+    """Legacy alias — prefer /livez / /readyz for new monitoring."""
     return HealthResponse(status="online", agents=list(AGENT_REGISTRY.keys()))
 
 # ── A2A §1.1 — Agent Card Discovery Endpoint ────────────────────────

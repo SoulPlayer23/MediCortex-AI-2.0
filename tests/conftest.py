@@ -147,6 +147,18 @@ def mock_medical_page_html():
     """
 
 
+# ── Spacy / Presidio pre-load ────────────────────────────────────────
+@pytest.fixture(scope="session", autouse=True)
+def _preload_orchestrator():
+    """Import orchestrator once per session so spacy/presidio stay in sys.modules.
+
+    Without this, any test that wraps orchestrator import inside patch.dict(sys.modules)
+    will unload spacy on context exit. The next import then re-executes weasel's schema
+    class body, triggering a pydantic v1 duplicate-validator ConfigError.
+    """
+    import orchestrator  # noqa: F401
+
+
 # ── Pytest Configuration ─────────────────────────────────────────────
 @pytest.fixture(autouse=True)
 def _set_test_env(monkeypatch):

@@ -6,7 +6,17 @@ from sqlalchemy.orm import declarative_base
 from config import settings
 
 # Create Async Engine
-engine = create_async_engine(settings.DATABASE_URL, echo=False)
+# OPS-1: Pool sizing for 10-user concurrency. Each /chat/stream request holds
+# a connection for the full LangGraph pipeline (30–120s during MedGemma synthesis),
+# so the default pool_size=5 is exhausted at the target scale.
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=False,
+    pool_size=settings.SQLALCHEMY_POOL_SIZE,
+    max_overflow=settings.SQLALCHEMY_MAX_OVERFLOW,
+    pool_timeout=settings.SQLALCHEMY_POOL_TIMEOUT,
+    pool_pre_ping=True,  # detects stale connections after VPS/homeserver restarts
+)
 Base = declarative_base()
 
 AsyncSessionLocal = sessionmaker(

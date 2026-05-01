@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { Plus, MessageSquare, PanelLeftClose, Settings, LogOut, HelpCircle, UserCircle, Search, ChevronRight } from 'lucide-react';
 
+// DEPLOY-4: env-driven API base; matches ChatArea/InputArea.
+const API_BASE: string = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8001';
+
 interface SidebarProps {
     isOpen: boolean;
     toggleSidebar: () => void;
@@ -49,7 +52,7 @@ const Sidebar = ({ isOpen, toggleSidebar, onSelectChat, currentSessionId }: Side
 
     const fetchSessions = async () => {
         try {
-            const res = await fetch('http://localhost:8001/chats');
+            const res = await fetch(`${API_BASE}/chats`);
             if (res.ok) {
                 const data = await res.json();
                 setSessions(data);

@@ -52,17 +52,31 @@ class A2ABaseAgent:
         self.card = card
         self.max_iterations = max_iterations
 
-        # Idempotency cache — Redis with in-memory fallback
+        # Idempotency cache — Redis with in-memory fallback. OPS-7: bounded
+        # socket timeouts so a slow/down Redis cannot block agent registry
+        # construction (this runs at orchestrator import time).
         self._response_cache: Dict[str, AgentResponse] = {}
         self._redis_cache = None
         try:
             if getattr(settings, "REDIS_URL", None):
-                self._redis_cache = redis.from_url(settings.REDIS_URL, decode_responses=True)
+                socket_timeout = getattr(settings, "REDIS_SOCKET_TIMEOUT", 2)
+                self._redis_cache = redis.from_url(
+                    settings.REDIS_URL,
+                    decode_responses=True,
+                    socket_timeout=socket_timeout,
+                    socket_connect_timeout=socket_timeout,
+                )
                 self._redis_cache.ping()
                 logger.info(f"[{self.name}] Connected to Redis cache.")
         except Exception as e:
             logger.warning(f"[{self.name}] Redis unavailable, using in-memory cache: {e}")
             self._redis_cache = None
+
+        # OPS-4: cache the planner instance + tool-bound runnable. Re-building
+        # ChatOllama and bind_tools() on every request is wasteful at the
+        # 10-user / 5-agent scale. Tools are static per agent class.
+        self._planner_cached = None
+        self._planner_with_tools_cached = None
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -283,14 +297,20 @@ class A2ABaseAgent:
         - refined_query is a more specific KB search term suggested by the planner,
           or None if context was sufficient.
         """
-        planner = ChatOllama(
-            model=settings.OLLAMA_CLOUD_MODEL,
-            temperature=1.0,
-            top_p=0.95,
-            top_k=64,
-            base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
-        )
-        planner_with_tools = planner.bind_tools(list(self.tools.values()))
+        # OPS-4: build planner + bind_tools once per agent instance.
+        if self._planner_with_tools_cached is None:
+            self._planner_cached = ChatOllama(
+                model=settings.OLLAMA_CLOUD_MODEL,
+                temperature=1.0,
+                top_p=0.95,
+                top_k=64,
+                base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
+                timeout=getattr(settings, "OLLAMA_TIMEOUT_SECONDS", 60),
+            )
+            self._planner_with_tools_cached = self._planner_cached.bind_tools(
+                list(self.tools.values())
+            )
+        planner_with_tools = self._planner_with_tools_cached
 
         messages = [
             SystemMessage(content=(
