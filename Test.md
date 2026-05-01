@@ -757,6 +757,91 @@ done
 
 ---
 
+---
+
+## Test Suite 8 — Query Expansion (QEX-1, added 2026-05-01)
+
+> Query expansion uses Gemma4 to generate up to 4 synonyms/related terms per extracted entity before KG lookup, capped at 10 total terms. Both `node_retrieve_knowledge` and `node_retrieve_knowledge_v2` (re-retrieval) apply expansion.
+
+### T8.1 — Expansion log lines appear for a clinical query
+
+**Steps:**
+1. Restart orchestrator: `python orchestrator.py`
+2. New chat. Send: `What are the drug interactions between warfarin and aspirin?`
+3. Watch `tail -f /tmp/orchestrator.log` in a second terminal.
+
+**Expected results:**
+- [ ] Log contains `KB query expansion` with `original` showing `["warfarin", "aspirin"]` and `expanded` showing 6–10 terms (e.g. `["warfarin", "coumadin", "vitamin K antagonist", "anticoagulant", "aspirin", "salicylate", ...]`)
+- [ ] Multiple `KB lookup` log lines follow (one per expanded term)
+- [ ] Response is richer than a single-entity query — covers drug class interactions, not just the two named drugs
+
+### T8.2 — Expansion falls back cleanly when Gemma4 returns malformed JSON
+
+**Steps:**
+1. Temporarily disconnect the homeserver Ollama (`OLLAMA_CLOUD_URL` pointed at unreachable host).
+2. Send: `Tell me about metformin`
+3. Restore Ollama connectivity.
+
+**Expected results:**
+- [ ] Log contains `Query expansion failed for entity` (warning, not error)
+- [ ] Pipeline continues — original entity `["metformin"]` is still looked up
+- [ ] Response is generated (graceful degradation, no 500)
+
+### T8.3 — Cap at 10 terms is respected for a multi-entity query
+
+**Steps:**
+1. Send: `Compare metformin, lisinopril, atorvastatin, and aspirin interactions`
+
+**Expected results:**
+- [ ] Log shows `KB query expansion` with `expanded` list length ≤ 10
+- [ ] `KB lookup` log lines count ≤ 10 (not 4 × 5 = 20)
+- [ ] Response covers all four drugs
+
+---
+
+## Automated Test Suites (pytest)
+
+> These run against the live backend without a browser. Ensure the orchestrator is running on `http://localhost:8001` before executing.
+
+### EVAL-2 Component Tests (Layer 1)
+
+Files created in the repo — run with:
+```bash
+pytest tests/unit/ tests/integration/ -v --tb=short -m "not stress"
+```
+
+| File | What it tests |
+|---|---|
+| `tests/unit/test_privacy_node.py` | HIPAA PII redaction/restoration — 6 test cases |
+| `tests/integration/test_retrieval_node.py` | Entity extraction, KB degradation, synonym resolution — 6 test cases |
+| `tests/integration/test_router_accuracy.py` | 50-query routing ground truth (`tests/resources/routing_ground_truth.json`) |
+| `tests/integration/test_reviewer_calibration.py` | Judge score determinism, PII detection, sample rate — 6 test cases |
+| `tests/integration/test_repetition_guard.py` | BUG-1 regression — repetition fallback, KB placeholder stripping — 3 test cases |
+
+### EVAL-1 Thesis Experiments (Layer 2)
+
+Scripts created — require `tests/resources/eval_test_set.json` (50 queries, write manually) and running backend:
+```bash
+pip install ragas pingouin
+python tests/evaluation/run_ragas.py              # → Table III
+python tests/evaluation/run_ablation.py           # → Table VI
+python tests/evaluation/run_judge_calibration.py  # → Table IV
+python tests/evaluation/plots/generate_all.py     # → Section 6.2 figures
+```
+
+### EVAL-3 Stress / Adversarial Tests (Layer 3, post-submission)
+
+```bash
+pytest tests/stress/ -v --tb=short -m stress
+```
+
+| File | What it tests |
+|---|---|
+| `tests/stress/test_failure_injection.py` | ArangoDB/Ollama/Groq/MinIO offline resilience |
+| `tests/stress/test_adversarial.py` | PII injection, jailbreak prompts, path traversal uploads |
+
+---
+
 ## Verification Queries (Reference)
 
 Use these SQL queries in psql or a DB client to inspect metadata after any test:

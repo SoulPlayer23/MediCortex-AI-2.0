@@ -295,18 +295,19 @@ The current pipeline (`extract_document_text` → raw text → MedGemma ReAct lo
 **Full spec:** `docs/evaluation-test-plan.md` §Layer 1
 **Priority:** Complete before running EVAL-1 — confirms individual nodes behave correctly so full-pipeline numbers are trustworthy.
 
-**New test files to write** (existing suite already covers routing basics and reviewer):
+**Status (2026-05-01): Test files created ✅ — need to be run and passing.**
 
-| File | Tests | Covers |
-|---|---|---|
-| `tests/unit/test_privacy_node.py` | PRIV-01..06 | 18 HIPAA identifiers, round-trip restore, multi-patient, placeholder leak prevention |
-| `tests/integration/test_retrieval_node.py` | RET-01..06 | Entity extraction, generic anatomy suppression, KB offline degradation, synonym resolution, multi-turn continuity |
-| `tests/integration/test_router_accuracy.py` | ROUTE-01..50 + CAP/MALFORMED/UNKNOWN | 50-query ground truth set; requires `tests/resources/routing_ground_truth.json` |
-| `tests/integration/test_reviewer_calibration.py` | JUDGE-01..06 | Fabricated dosage caught, determinism at `temperature=0`, PII placeholder detection, sample rate suppression |
-| `tests/integration/test_repetition_guard.py` | REP-GUARD-01..03 | BUG-1 regression: repetition triggers fallback, KB placeholder stripped from `enhanced_input` |
+| File | Status | Tests | Covers |
+|---|---|---|---|
+| `tests/unit/test_privacy_node.py` | ✅ Created | PRIV-01..06 | 18 HIPAA identifiers, round-trip restore, multi-patient, placeholder leak prevention |
+| `tests/integration/test_retrieval_node.py` | ✅ Created | RET-01..06 | Entity extraction, generic anatomy suppression, KB offline degradation, synonym resolution, multi-turn continuity |
+| `tests/integration/test_router_accuracy.py` | ✅ Created | ROUTE-01..50 + CAP/MALFORMED/UNKNOWN | 50-query ground truth set; uses `tests/resources/routing_ground_truth.json` |
+| `tests/integration/test_reviewer_calibration.py` | ✅ Created | JUDGE-01..06 | Fabricated dosage caught, determinism at `temperature=0`, PII placeholder detection, sample rate suppression |
+| `tests/integration/test_repetition_guard.py` | ✅ Created | REP-GUARD-01..03 | BUG-1 regression: repetition triggers fallback, KB placeholder stripped from `enhanced_input` |
 
-**Resources to create:**
-- `tests/resources/routing_ground_truth.json` — 50 labeled queries with expected agent(s) per query
+**Resources:**
+- `tests/resources/routing_ground_truth.json` ✅ — 50 labeled queries already present
+- `tests/resources/human_ratings_template.csv` ✅ — rating sheet present
 
 **Run command:**
 ```bash
@@ -336,23 +337,27 @@ pytest tests/unit/ tests/integration/ -v --tb=short -m "not stress"
 8. python tests/evaluation/plots/generate_all.py     → 4 PDF figures for Section 6.2
 ```
 
-**Scripts to write:**
+**Scripts (all created ✅ — need `eval_test_set.json` and a running backend to execute):**
 
-- **`tests/evaluation/run_ragas.py`** — sends each test set query to live `/chat/stream`, collects response + `message_metadata.retrieval.refined_context`, feeds `{query, answer, context, ground_truth}` into RAGAS with Llama-3.3-70B evaluator. Writes `results/ragas_scores.json`.
+- **`tests/evaluation/run_ragas.py`** ✅ — sends each test set query to live `/chat/stream`, collects response + `message_metadata.retrieval.refined_context`, feeds `{query, answer, context, ground_truth}` into RAGAS with Llama-3.3-70B evaluator. Writes `results/ragas_scores.json`.
 
-- **`tests/evaluation/run_judge_calibration.py`** — reads `tests/resources/human_ratings.csv` (30 queries rated by two human experts on 1–5 scale: Clinical Accuracy, Completeness, Safety, Clarity), reads judge scores from `message_metadata`, computes ICC via `pingouin.intraclass_corr()` and weighted Cohen's kappa via `sklearn.metrics.cohen_kappa_score()`.
+- **`tests/evaluation/run_judge_calibration.py`** ✅ — reads `tests/resources/human_ratings.csv` (30 queries rated by two human experts on 1–5 scale: Clinical Accuracy, Completeness, Safety, Clarity), reads judge scores from `message_metadata`, computes ICC via `pingouin.intraclass_corr()` and weighted Cohen's kappa via `sklearn.metrics.cohen_kappa_score()`.
 
-- **`tests/evaluation/run_ablation.py`** — runs the 50-query set 4 times with these env-flag configurations:
+- **`tests/evaluation/run_ablation.py`** ✅ — runs the 50-query set 4 times with these env-flag configurations:
   1. `ARANGODB_HOST=""` → no KG traversal (vector search only)
   2. `JUDGE_ENABLED=False` → no LLM-as-judge gate
   3. `MAX_CONCURRENT_AGENTS=1` in code → sequential execution (latency comparison)
   4. `MEDGEMMA_MODEL=gemma3:4b` → no domain adaptation (base model swap)
 
-- **`tests/evaluation/plots/generate_all.py`** — produces 4 PDF figures:
+- **`tests/evaluation/plots/generate_all.py`** ✅ — produces 4 PDF figures:
   1. RAGAS faithfulness bar chart per domain
   2. Latency box plot (full vs. sequential vs. non-agentic)
   3. R-GCN ROC curve (load from notebook output)
   4. Judge score distribution histogram (from test set `message_metadata.judge_score`)
+
+**Still needed before running EVAL-1:**
+- `tests/resources/eval_test_set.json` ✅ — file exists; verify it has 50 queries with `ground_truth` fields populated
+- `tests/resources/human_ratings.csv` — must be filled in by two human raters (template at `human_ratings_template.csv` ✅)
 
 **Human rating sheet:** `tests/resources/human_ratings_template.csv` columns:
 `item_id, query_preview, response_preview, rater_a_accuracy, rater_a_completeness, rater_a_safety, rater_a_clarity, rater_b_accuracy, rater_b_completeness, rater_b_safety, rater_b_clarity, judge_score, judge_reason`
