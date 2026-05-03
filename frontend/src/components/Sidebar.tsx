@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Plus, MessageSquare, PanelLeftClose, Settings, LogOut, HelpCircle, UserCircle, Search, ChevronRight } from 'lucide-react';
+import { Plus, PanelLeftClose, Settings, LogOut, HelpCircle, UserCircle, ChevronRight } from 'lucide-react';
 
 // DEPLOY-4: env-driven API base; matches ChatArea/InputArea.
 const API_BASE: string = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8001';
