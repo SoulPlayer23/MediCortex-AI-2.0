@@ -1176,17 +1176,24 @@ def _start_keepwarm_task() -> Optional[asyncio.Task]:
     interval = settings.MEDGEMMA_KEEPWARM_INTERVAL_SECONDS
 
     async def _ping_loop():
-        headers = {}
+        headers = {"Content-Type": "application/json"}
         if settings.RUNPOD_API_KEY:
             headers["Authorization"] = f"Bearer {settings.RUNPOD_API_KEY}"
+        # Minimal inference payload — same structure as MedGemmaLLM._build_payload.
+        # A real POST is required to keep the Flash container loaded on RunPod;
+        # a GET only hits the worker shell and doesn't prevent Flash cold-starts.
+        warmup_payload = {"input": {"prompt": "ping", "max_new_tokens": 1, "temperature": 0.1}}
         loop = asyncio.get_event_loop()
         while True:
             try:
-                # Run the blocking call in the default executor so we don't
-                # block the event loop during a long cold start.
                 await loop.run_in_executor(
                     None,
-                    lambda: requests.get(settings.MEDGEMMA_KEEPWARM_URL, headers=headers, timeout=10),
+                    lambda: requests.post(
+                        settings.MEDGEMMA_KEEPWARM_URL,
+                        json=warmup_payload,
+                        headers=headers,
+                        timeout=60,
+                    ),
                 )
                 logger.info("MedGemma keepwarm ping ok")
             except Exception as e:
