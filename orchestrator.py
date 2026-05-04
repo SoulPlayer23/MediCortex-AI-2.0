@@ -1192,7 +1192,7 @@ def _start_keepwarm_task() -> Optional[asyncio.Task]:
                         settings.MEDGEMMA_KEEPWARM_URL,
                         json=warmup_payload,
                         headers=headers,
-                        timeout=60,
+                        timeout=150,  # Flash cold start takes 75-120s
                     ),
                 )
                 logger.info("MedGemma keepwarm ping ok")
