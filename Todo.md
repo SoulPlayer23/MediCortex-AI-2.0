@@ -25,7 +25,7 @@
 **Resolved:**
 - ✅ `MEDGEMMA_API_URL` set to RunPod `/runsync` in `.env`
 - ✅ `RUNPOD_API_KEY` set — Bearer auth working
-- ✅ `MEDGEMMA_TIMEOUT_SECONDS=30` — Gemma 4 fallback fires within 30s on cold start
+- ✅ `MEDGEMMA_TIMEOUT_SECONDS=120` — raised from 30s (2026-05-04); 30s was too aggressive for warm-pod inference (2+ min synthesis on complex queries)
 - ✅ Request/response shape correct (`_build_payload` wraps in `{"input":…}`, `_unwrap_response` handles `{"output":{"response":"…"}}`)
 
 **Remaining — OPS-8 (keepwarm):**
@@ -374,16 +374,30 @@ pytest tests/stress/ -v --tb=short -m stress
 
 ---
 
-#### OPS-8 — Keepwarm pinger is a no-op for RunPod (wrong method + wrong interval)
+#### OPS-8 — Keepwarm pinger is a no-op for RunPod (wrong method + wrong interval) ⚠️ PARTIAL (2026-05-04)
 **File:** `orchestrator.py:_start_keepwarm_task`
 **Symptom:** The pinger sends `GET` to `/runsync` every 240s. RunPod only accepts `POST` on that endpoint, and the idle timeout is 10s — so the worker is always cold by the time it's pinged, and even a correct POST every 240s wouldn't help.
-**Fix — activity-aware burst keepwarm:**
+
+**Resolved (2026-05-04):**
+- ✅ Switched from `GET /runsync` to `POST /run` (async fire-and-forget) — prevents queue buildup that occurred when `/runsync` blocked 2+ minutes per ping
+- ✅ `MEDGEMMA_TIMEOUT_SECONDS` raised from 30s → 120s in both `config.py` default and homeserver `.env`
+- ✅ Synthesis model now logged: `[agent] synthesis complete model=medgemma|gemma4_fallback chars=N` in `specialized_agents/base.py`
+
+**Remaining — activity-aware burst keepwarm:**
 - Track `_last_request_at: float` (module-level, updated at the start of each `/chat/stream` and `/chat` request).
-- Change the ping to a `POST` with a minimal valid payload: `{"input": {"prompt": "ping", "max_tokens": 1}}` with the `Authorization` header.
-- Change the ping interval to **8s** but only fire when `time.time() - _last_request_at < 300` (i.e. within 5 min of the last real request). Outside that window, sleep the full 300s and recheck — this avoids burning RunPod credits during idle periods.
+- Change the ping interval to **8s** but only fire when `time.time() - _last_request_at < 300` (i.e. within 5 min of the last real request). Outside that window, sleep the full 300s and recheck — avoids burning RunPod credits during idle periods.
 - Log `keepwarm: worker hot` vs `keepwarm: idle, skipping` so it's observable.
 
 **Effect:** After any real user request, the worker stays warm for the next ~5 min at a cost of ~37 pings (each ~1s inference = negligible). Outside active windows, zero cost.
+
+#### BUG-8 — Pharmacology agent has no dosage lookup tool → score=1 on dosage queries
+**File:** `specialized_agents/drug_agent.py`
+**Symptom:** Queries like "What is the recommended dosage of amoxicillin for adults?" route to `pharmacology` but the agent's only tools are `check_drug_interactions` and `recommend_drugs` — neither handles dosage lookup. The agent skips tool calls entirely and MedGemma synthesizes from KB context alone, producing off-topic output (reviewer score=1, "does not address the query"). Observed 2026-05-04 on amoxicillin dosage query.
+**Fix:**
+- Add a `lookup_drug_dosage(drug_name: str, population: str = "adult") → str` tool to `tools/pharmacology_tools.py` that queries Drugs.com or FDA label API for standard dosing.
+- Add it to `drug_agent`'s tool list alongside the existing two tools.
+- Update `drug_card.capabilities` to include `"dosage-lookup"`.
+**Priority:** High — any direct dosage query currently returns a disclaimer-only response.
 
 #### OPS-4 — Per-call `ChatOllama` instantiation + missing timeouts in agent planner
 **File:** `specialized_agents/base.py:286–315`
