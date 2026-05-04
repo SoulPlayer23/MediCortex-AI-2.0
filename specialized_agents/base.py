@@ -472,9 +472,11 @@ class A2ABaseAgent:
                     base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
                 )
                 output = fallback.invoke([_HumanMessage(content=prompt)]).content
+                logger.info(f"[{self.name}] synthesis complete", model="gemma4_fallback", chars=len(output))
             except Exception as e:
                 logger.error(f"[{self.name}] Gemma 4 fallback also failed: {e}")
-                # Return whatever MedGemma produced rather than silently swallowing the error
+        else:
+            logger.info(f"[{self.name}] synthesis complete", model="medgemma", chars=len(output))
         return output
 
     @staticmethod
