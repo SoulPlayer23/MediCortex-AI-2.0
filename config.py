@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     # MedGemma
     MEDGEMMA_API_URL: str = "http://localhost:8000/predict"
     # DEPLOY-2: cold-start handling
-    MEDGEMMA_TIMEOUT_SECONDS: int = 30  # was 120; fall back to Gemma 4 fast on RunPod cold start
+    MEDGEMMA_TIMEOUT_SECONDS: int = 120  # keepwarm every 240s keeps pod warm; 120s covers complex synthesis
     MEDGEMMA_KEEPWARM_URL: Optional[str] = None  # if set, periodically pinged in lifespan
     MEDGEMMA_KEEPWARM_INTERVAL_SECONDS: int = 240  # 4 min
     RUNPOD_API_KEY: Optional[str] = None  # Bearer token for RunPod /runsync
