@@ -27,12 +27,31 @@ npm run lint
 > **Vite HMR limitation**: File changes by Claude Code on Windows `D:` drive do **not** trigger chokidar. After any frontend change, restart the dev server manually (`Ctrl-C` then `npm run dev`).
 
 ### Testing
+
+> **CRITICAL — always use the repo `.venv` and run tests serially (one at a time).** Parallel test workers crash WSL.
+
 ```bash
-pytest
-pytest tests/integration/test_reviewer_node.py
-pytest tests/integration/test_reviewer_node.py::test_reviewer_low_score
-python tests/health_check.py        # requires running services
+# Always activate .venv first
+source .venv/bin/activate
+
+# Run all non-stress tests (serial, no xdist)
+.venv/bin/python3 -m pytest tests/unit/ tests/integration/ -v --tb=short -m "not stress"
+
+# Run a single test file
+.venv/bin/python3 -m pytest tests/integration/test_reviewer_node.py -v --tb=short
+
+# Run a single test
+.venv/bin/python3 -m pytest tests/integration/test_reviewer_node.py::test_reviewer_low_score -v
+
+# Stress tests (run individually, not as a batch)
+.venv/bin/python3 -m pytest tests/stress/test_failure_injection.py -v --tb=short -m stress
+.venv/bin/python3 -m pytest tests/stress/test_adversarial.py -v --tb=short -m stress
+
+# Health check (requires running services)
+.venv/bin/python3 tests/health_check.py
 ```
+
+> **Never run** `pytest -n auto` or `pytest -n 4` — xdist is disabled in pytest.ini via `-p no:xdist`. Do not override it.
 
 ---
 
