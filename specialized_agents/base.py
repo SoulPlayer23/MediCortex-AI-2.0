@@ -15,7 +15,7 @@ from config import settings
 logger = logging.getLogger("SpecializedAgents")
 
 # MedGemma — used exclusively for clinical synthesis (Phase 2).
-# Tool orchestration is handled by Gemma 4 (Phase 1).
+# Tool orchestration is handled by Gemma3:1b (Phase 1).
 llm = MedGemmaLLM()
 
 
@@ -23,7 +23,7 @@ class A2ABaseAgent:
     """
     Base Agent implementing the A2A Protocol with a two-phase execution model:
 
-      Phase 1 — Gemma 4 (planner):
+      Phase 1 — Gemma3:1b (planner):
         Decides which tools to call, calls them, collects observations.
         Emits tool thoughts in real-time for SSE streaming.
 
@@ -31,7 +31,7 @@ class A2ABaseAgent:
         Receives the original query + all gathered tool results.
         Called exactly once to produce the final clinical response.
 
-    This cleanly separates agentic orchestration (Gemma 4's strength) from
+    This cleanly separates agentic orchestration (Gemma3:1b's strength) from
     medical knowledge synthesis (MedGemma's strength), and eliminates the
     token waste of making a 4B medical model reason about tool selection.
     """
@@ -123,7 +123,7 @@ class A2ABaseAgent:
 
             # tool_context carries sensitive data that must never appear in any
             # LLM prompt. _call_tool() injects matching keys at call time via
-            # inspect.signature, keeping PII out of both Gemma 4 and MedGemma.
+            # inspect.signature, keeping PII out of both Gemma3:1b and MedGemma.
             tool_context: Dict[str, Any] = {}
             if pii_json := envelope.payload.get("pii_mapping_json"):
                 tool_context["pii_mapping_json"] = pii_json
@@ -188,7 +188,7 @@ class A2ABaseAgent:
     ) -> Tuple[str, List[str], List[dict], bool, Optional[str]]:
         """
         Two-phase pipeline:
-          Phase 1 — Gemma 4 gathers tool data (emits thoughts in real-time).
+          Phase 1 — Gemma3:1b gathers tool data (emits thoughts in real-time).
           Phase 2 — MedGemma synthesizes the final clinical response (single call).
 
         Returns (final_answer, thinking_steps, sources, low_context, refined_query).
@@ -282,14 +282,14 @@ class A2ABaseAgent:
         tool_context: Dict[str, Any],
     ) -> Tuple[List[Tuple[str, str]], List[dict], bool, Optional[str]]:
         """
-        Phase 1: Gemma 4 decides which tools to call and in what order.
+        Phase 1: Gemma3:1b decides which tools to call and in what order.
 
         Uses LangChain bind_tools() so tool schemas are generated automatically.
         Loops up to self.max_iterations times to allow multi-tool pipelines
         (e.g. patient agent: retrieve → history → vitals → medications).
 
         tool_context keys (pii_mapping_json, knowledge_context) are injected
-        at call time by _call_tool() and are never visible to Gemma 4.
+        at call time by _call_tool() and are never visible to Gemma3:1b.
 
         Returns (tool_results, sources, low_context, refined_query) where:
         - low_context is True when tool observations are empty or thin (<200 chars total)
@@ -336,7 +336,7 @@ class A2ABaseAgent:
             messages.append(response)
 
             if not response.tool_calls:
-                # Gemma 4 decided no more tools needed
+                # Gemma3:1b decided no more tools needed
                 break
 
             for tc in response.tool_calls:
@@ -398,7 +398,7 @@ class A2ABaseAgent:
         """
         Execute a tool, transparently injecting tool_context keys that match
         the tool's function signature (e.g. pii_mapping_json for patient tools).
-        Neither Gemma 4 nor MedGemma ever sees these injected values.
+        Neither Gemma3:1b nor MedGemma ever sees these injected values.
         """
         tool = self.tools.get(tool_name)
         if not tool:
@@ -433,7 +433,7 @@ class A2ABaseAgent:
 
         After synthesis, a repetition guard checks whether any sentence appears
         more than 3 times. If so, MedGemma has entered a loop — the output is
-        discarded and Gemma 4 synthesizes instead.
+        discarded and Gemma3:1b synthesizes instead.
         """
         if tool_results:
             gathered = "\n\n".join(
@@ -457,10 +457,10 @@ class A2ABaseAgent:
 
         # Repetition guard: MedGemma sometimes loops a single sentence when it
         # receives a prompt it cannot ground (e.g. empty KB context). Detect and
-        # fall back to Gemma 4 rather than returning garbage to the user.
+        # fall back to Gemma3:1b rather than returning garbage to the user.
         if self._is_looping(output):
             logger.warning(
-                f"[{self.name}] MedGemma loop detected — falling back to Gemma 4"
+                f"[{self.name}] MedGemma loop detected — falling back to Gemma3:1b"
             )
             try:
                 from langchain_core.messages import HumanMessage as _HumanMessage
@@ -472,9 +472,9 @@ class A2ABaseAgent:
                     base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
                 )
                 output = fallback.invoke([_HumanMessage(content=prompt)]).content
-                logger.info(f"[{self.name}] synthesis complete", model="gemma4_fallback", chars=len(output))
+                logger.info(f"[{self.name}] synthesis complete", model="gemma3_fallback", chars=len(output))
             except Exception as e:
-                logger.error(f"[{self.name}] Gemma 4 fallback also failed: {e}")
+                logger.error(f"[{self.name}] Gemma3:1b fallback also failed: {e}")
         else:
             logger.info(f"[{self.name}] synthesis complete", model="medgemma", chars=len(output))
         return output

@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     # Ollama (Router / Aggregator / Extractor / Agent Planner / Fallback synthesizer)
     OLLAMA_CLOUD_URL: str = "http://homeserver:11434"
-    OLLAMA_CLOUD_MODEL: str = "gemma4:e2b"
+    OLLAMA_CLOUD_MODEL: str = "gemma3:1b"
     OLLAMA_TIMEOUT_SECONDS: int = 60  # OPS-4
 
     # MinIO

@@ -221,7 +221,7 @@ def _kb_context_is_empty(context_sections: list) -> bool:
     return True
 
 llm = None
-extractor_llm = None  # Fast model for entity extraction (reuses Gemma 4 llm instance)
+extractor_llm = None  # Fast model for entity extraction (reuses Gemma3 llm instance)
 
 # ==========================================
 # 🕸️ LANGGRAPH NODES
@@ -1230,12 +1230,12 @@ async def lifespan(app: FastAPI):
     logger.info("Instantiating PrivacyManager Singleton")
     privacy_manager = PrivacyManager()
 
-    # ── 3. Gemma 4 via Ollama Cloud (Router / Aggregator / Extractor) ────
+    # ── 3. Gemma3 via Ollama Cloud (Router / Aggregator / Extractor) ────
     # Replaces GPT-4o-mini everywhere. A warmup call is issued at startup
     # so the first user request is served from a hot model.
     try:
         _ollama_base = settings.OLLAMA_CLOUD_URL.removesuffix("/v1")
-        logger.info("Initializing Gemma 4 LLM Client (ChatOllama)", model=settings.OLLAMA_CLOUD_MODEL, base_url=_ollama_base)
+        logger.info("Initializing Gemma3 LLM Client (ChatOllama)", model=settings.OLLAMA_CLOUD_MODEL, base_url=_ollama_base)
         llm = ChatOllama(
             model=settings.OLLAMA_CLOUD_MODEL,
             temperature=1.0,
@@ -1243,7 +1243,7 @@ async def lifespan(app: FastAPI):
             top_k=64,
             base_url=_ollama_base,
         )
-        logger.info("Gemma 4 Client Ready — warming up model (first request may load model)")
+        logger.info("Gemma3 Client Ready — warming up model (first request may load model)")
         # Warmup call: fires asynchronously so startup doesn't block.
         # Runs as a background asyncio task — completes before first user message arrives
         # if startup took ≥ 5 minutes (typical Ollama Cloud cold-start for 31B).
@@ -1255,16 +1255,16 @@ async def lifespan(app: FastAPI):
                     None,
                     lambda: llm.invoke([_WarmupMsg(content="ping")])
                 )
-                logger.info("Gemma 4 warmup complete — model is hot")
+                logger.info("Gemma3 warmup complete — model is hot")
             except Exception as _we:
-                logger.warning("Gemma 4 warmup failed (model may still be loading)", error=str(_we))
+                logger.warning("Gemma3 warmup failed (model may still be loading)", error=str(_we))
         _asyncio.create_task(_warmup())
-        logger.info("Gemma 4 LLM Ready (ChatOllama)", model=settings.OLLAMA_CLOUD_MODEL, base_url=_ollama_base, status="success")
+        logger.info("Gemma3 LLM Ready (ChatOllama)", model=settings.OLLAMA_CLOUD_MODEL, base_url=_ollama_base, status="success")
     except Exception as e:
-        logger.error("Gemma 4 Ollama Cloud setup failed", error=str(e))
+        logger.error("Gemma3 Ollama Cloud setup failed", error=str(e))
         llm = None
 
-    # extractor_llm reuses the same Gemma 4 instance for entity extraction
+    # extractor_llm reuses the same Gemma3 instance for entity extraction
     extractor_llm = llm
 
     # ── 4. LangGraph Workflow ──────────────────────────────────────────
@@ -1402,7 +1402,7 @@ async def chat_stream_endpoint(request: Request, body: ChatRequest, db: AsyncSes
             agent_thoughts = []
             final_output = ""
             msg_metadata = {
-                "llm_used": "MedGemma (via HF) / Gemma 4 Router",
+                "llm_used": "MedGemma (via HF) / Gemma3 Router",
                 "judge_score": None,
                 "judge_reason": None,
                 "judge_confidence": None,
@@ -1625,7 +1625,7 @@ async def chat_endpoint(request: Request, body: ChatRequest, db: AsyncSession = 
         agent_thinking = result.get("agent_thoughts", [])
 
         msg_metadata = {
-            "llm_used": "MedGemma (via HF) / Gemma 4 Router",
+            "llm_used": "MedGemma (via HF) / Gemma3 Router",
             "judge_score": result.get("judge_score"),
             "judge_reason": result.get("judge_reason"),
             "judge_confidence": result.get("judge_confidence"),

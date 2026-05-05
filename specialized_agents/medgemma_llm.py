@@ -55,7 +55,7 @@ class MedGemmaLLM(LLM):
     local medgemma-host container (returns {"response": "..."}) or by RunPod
     Serverless /runsync (returns {"output": {"text": "..."}}).
 
-    Falls back to Gemma 4 via Ollama when the MedGemma endpoint is unreachable
+    Falls back to Gemma3:1b via Ollama when the MedGemma endpoint is unreachable
     or returns an HTTP error (RunPod cold-start, server down, etc.).
     """
 
@@ -65,7 +65,7 @@ class MedGemmaLLM(LLM):
     top_k: int = Field(default=65)
     top_p: float = Field(default=0.95)
     min_p: float = Field(default=0.0)
-    # DEPLOY-2: shorter default so RunPod cold starts fall back to Gemma 4 fast
+    # DEPLOY-2: shorter default so RunPod cold starts fall back to Gemma3:1b fast
     # rather than blocking the user for the full inference window.
     timeout: int = Field(default_factory=lambda: settings.MEDGEMMA_TIMEOUT_SECONDS)
 
@@ -113,13 +113,13 @@ class MedGemmaLLM(LLM):
             return text_output
 
         except requests.exceptions.RequestException as e:
-            # MedGemma is offline / cold-starting / timing out — fall back to Gemma 4
+            # MedGemma is offline / cold-starting / timing out — fall back to Gemma3:1b
             logger.warning(
-                f"MedGemma server unreachable ({e}). Falling back to Gemma 4 (Ollama)."
+                f"MedGemma server unreachable ({e}). Falling back to Gemma3:1b (Ollama)."
             )
-            return self._gemma4_fallback(prompt, stop=stop, primary_error=str(e))
+            return self._gemma3_fallback(prompt, stop=stop, primary_error=str(e))
 
-    def _gemma4_fallback(
+    def _gemma3_fallback(
         self, prompt: str, stop: Optional[List[str]] = None, primary_error: str = ""
     ) -> str:
         try:
@@ -158,11 +158,11 @@ class MedGemmaLLM(LLM):
             return text_output
 
         except Exception as fallback_error:
-            logger.error(f"Gemma 4 fallback also failed: {fallback_error}")
+            logger.error(f"Gemma3:1b fallback also failed: {fallback_error}")
             return (
-                f"Error: MedGemma is offline and the Gemma 4 fallback failed.\n"
+                f"Error: MedGemma is offline and the Gemma3:1b fallback failed.\n"
                 f"MedGemma error: {primary_error}\n"
-                f"Gemma 4 error: {fallback_error}"
+                f"Gemma3:1b error: {fallback_error}"
             )
 
     def _stream(
