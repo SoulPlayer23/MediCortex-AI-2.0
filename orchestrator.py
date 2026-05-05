@@ -369,37 +369,37 @@ async def node_retrieve_knowledge(state: AgentState):
             "retrieval_feedback": [],
         }
 
-    # Query expansion: fire one LLM call per entity in parallel to get clinical synonyms.
-    # Caps at _MAX_EXPANDED_TERMS total unique terms to keep ArangoDB round-trips bounded.
+    # Query expansion: single batched LLM call for all entities at once.
+    # Returns a JSON object {entity: [synonym, ...]} — one round-trip regardless of entity count.
     _MAX_EXPANDED_TERMS = 10
-    _expansion_prompt = (
-        "You are a medical terminology expert. Given a clinical entity, return a JSON array "
-        "of 4 alternative terms: synonyms, abbreviations, related conditions, or drug class names "
-        "that a medical knowledge graph might store separately. "
-        "Return ONLY the JSON array, no prose. Do not repeat the input term.\n\n"
-        "Examples:\n"
-        "Input: metformin -> [\"biguanide\", \"glucophage\", \"oral hypoglycemic\", \"type 2 diabetes medication\"]\n"
-        "Input: heart failure -> [\"cardiac failure\", \"CHF\", \"congestive heart failure\", \"cardiomyopathy\"]\n"
-        "Input: hypertension -> [\"high blood pressure\", \"HTN\", \"arterial hypertension\", \"elevated BP\"]\n"
-        "Input: {entity}"
-    )
-
     _extr = extractor_llm or llm
 
-    async def _expand_entity(entity: str) -> list[str]:
+    async def _expand_entities_batch(entity_list: list[str]) -> dict[str, list[str]]:
+        prompt = (
+            "You are a medical terminology expert. Given a list of clinical entities, return a JSON object "
+            "where each key is an entity and the value is an array of 3 synonyms, abbreviations, or related "
+            "terms that a medical knowledge graph might store separately. "
+            "Return ONLY valid JSON, no prose, no code fences. Do not repeat the input term in its own array.\n\n"
+            "Examples:\n"
+            "{\"metformin\": [\"biguanide\", \"Glucophage\", \"oral hypoglycemic\"], "
+            "\"heart failure\": [\"CHF\", \"cardiac failure\", \"cardiomyopathy\"], "
+            "\"hypertension\": [\"HTN\", \"high blood pressure\", \"elevated BP\"]}\n\n"
+            f"Entities: {json.dumps(entity_list)}"
+        )
         try:
-            raw = (await _extr.ainvoke([
-                HumanMessage(content=_expansion_prompt.format(entity=entity))
-            ])).content.strip()
-            parsed_exp = json.loads(raw.replace("```json", "").replace("```", "").strip())
-            if isinstance(parsed_exp, list):
-                return [entity] + [a for a in parsed_exp if isinstance(a, str)]
+            raw = (await _extr.ainvoke([HumanMessage(content=prompt)])).content.strip()
+            parsed = json.loads(raw.replace("```json", "").replace("```", "").strip())
+            if isinstance(parsed, dict):
+                return parsed
         except Exception as exp_err:
-            logger.warning("Query expansion failed for entity", entity=entity, error=str(exp_err))
-        return [entity]
+            logger.warning("Batched entity expansion failed", error=str(exp_err))
+        return {}
 
-    # Run all expansion calls in parallel
-    expansion_results = await asyncio.gather(*[_expand_entity(e) for e in entities])
+    expansion_map = await _expand_entities_batch(entities)
+    expansion_results = [
+        [e] + [s for s in expansion_map.get(e, []) if isinstance(s, str)]
+        for e in entities
+    ]
 
     seen_for_expansion: set[str] = set()
     expanded_terms: list[str] = []
@@ -462,13 +462,6 @@ async def node_retrieve_knowledge_v2(state: AgentState):
 
     _MAX_RERETRIEVAL_TERMS = 10
     _extr = extractor_llm or llm
-    _expansion_prompt = (
-        "You are a medical terminology expert. Given a clinical entity, return a JSON array "
-        "of 4 alternative terms: synonyms, abbreviations, related conditions, or drug class names "
-        "that a medical knowledge graph might store separately. "
-        "Return ONLY the JSON array, no prose. Do not repeat the input term.\n\n"
-        "Input: {entity}"
-    )
 
     # Deduplicate seed terms from agent feedback
     seed_terms: list[str] = []
@@ -478,20 +471,28 @@ async def node_retrieve_knowledge_v2(state: AgentState):
             seen_terms.add(term.lower())
             seed_terms.append(term)
 
-    async def _expand_term(term: str) -> list[str]:
+    async def _expand_terms_batch(term_list: list[str]) -> dict[str, list[str]]:
+        prompt = (
+            "You are a medical terminology expert. Given a list of clinical entities, return a JSON object "
+            "where each key is an entity and the value is an array of 3 synonyms, abbreviations, or related "
+            "terms that a medical knowledge graph might store separately. "
+            "Return ONLY valid JSON, no prose, no code fences. Do not repeat the input term in its own array.\n\n"
+            f"Entities: {json.dumps(term_list)}"
+        )
         try:
-            raw = (await _extr.ainvoke([
-                HumanMessage(content=_expansion_prompt.format(entity=term))
-            ])).content.strip()
-            parsed_exp = json.loads(raw.replace("```json", "").replace("```", "").strip())
-            if isinstance(parsed_exp, list):
-                return [term] + [a for a in parsed_exp if isinstance(a, str)]
+            raw = (await _extr.ainvoke([HumanMessage(content=prompt)])).content.strip()
+            parsed = json.loads(raw.replace("```json", "").replace("```", "").strip())
+            if isinstance(parsed, dict):
+                return parsed
         except Exception:
             pass
-        return [term]
+        return {}
 
-    # Expand all seed terms in parallel
-    expansion_results = await asyncio.gather(*[_expand_term(t) for t in seed_terms])
+    expansion_map = await _expand_terms_batch(seed_terms)
+    expansion_results = [
+        [t] + [s for s in expansion_map.get(t, []) if isinstance(s, str)]
+        for t in seed_terms
+    ]
 
     expanded_terms: list[str] = []
     seen_expanded: set[str] = set()
@@ -549,40 +550,36 @@ def node_router(state: AgentState):
     routing_context = state.get("routing_context") or ""
 
     system_prompt = (
-        "You are the MediCortex Orchestrator. Your ONLY job is to select the best agent(s) to handle the user's query.\n\n"
-        "═══ AGENT DECISION RULES ═══\n\n"
-        "'diagnosis' — Use when the user describes symptoms, asks about a disease's symptoms, asks what disease they might have, "
-        "or asks for a differential diagnosis. "
-        "EXAMPLES: 'symptoms of diabetes', 'what causes chest pain', 'I have a headache and fever', 'differential for chest tightness'.\n\n"
-        "'pharmacology' — Use when the user asks about drug treatments, medications for a condition, drug interactions, "
-        "dosage, contraindications, or alternatives for a drug. "
-        "EXAMPLES: 'treatment options for hypertension', 'what medications are used for T2D', "
-        "'interactions of Metformin and Lisinopril', 'dosage for Ibuprofen', 'alternatives to Atorvastatin'.\n\n"
-        "'pubmed' — Use when the user asks for research papers, clinical studies, literature reviews, or recent evidence on a topic. "
-        "EXAMPLES: 'latest research on Alzheimer's', 'clinical trials for immunotherapy', 'evidence for statins'.\n\n"
-        "'report_analyzer' — Use ONLY when the user provides or references a document, lab result, PDF, image, X-ray, MRI, or CT scan. "
-        "EXAMPLES: 'analyze my lab report', 'what does this X-ray show', 'interpret my HbA1c result'.\n\n"
-        "'patient' — Use ONLY when the user asks about a specific named or identified patient's records, history, medications, or vitals. "
-        "EXAMPLES: 'show me John's records', 'what medications is patient PT-10042 on'.\n\n"
-        "═══ CRITICAL RULES ═══\n"
-        "- A query about symptoms only → ['diagnosis'] only\n"
-        "- A query about treatment options or medications for a disease → ['diagnosis', 'pharmacology']\n"
-        "- A query about both symptoms AND treatment → ['diagnosis', 'pharmacology']\n"
-        "- A query about a named drug (interaction/dosage/alternatives) with no disease context → ['pharmacology'] only\n"
-        "- A query about research/literature → ['pubmed'] only\n"
-        "- NEVER route to 'pubmed' unless research papers are explicitly requested.\n\n"
-        "═══ FOLLOW-UP QUERY HANDLING ═══\n"
-        "If the current query uses ambiguous pronouns or implicit references such as 'his', 'her', 'their', "
-        "'the patient', 'these medications', 'the drug', 'the condition', 'it', 'they' — resolve the "
-        "reference using the Recent Session Context provided below.\n"
-        "Resolution rules:\n"
-        "- Previous turn used [patient] AND follow-up asks about medications/interactions/drugs → ['pharmacology']\n"
-        "- Previous turn used [patient] AND follow-up asks about symptoms/conditions/diagnosis → ['diagnosis']\n"
-        "- Previous turn used [pharmacology] AND follow-up asks about the same drug(s) → ['pharmacology']\n"
-        "- Previous turn used [pubmed] AND follow-up asks for more research → ['pubmed']\n"
-        "- Previous turn used [diagnosis] AND follow-up asks about drugs for that condition → ['pharmacology']\n\n"
-        "Return ONLY a JSON array of agent keys. Examples: ['diagnosis'] or ['pharmacology'] or ['diagnosis', 'pharmacology'].\n"
-        "Do NOT add any explanation. Only output the JSON array."
+        "You are the MediCortex Orchestrator. Your ONLY job is to select which specialist agents to call.\n\n"
+        "VALID KEYS — use ONLY these, never invent new ones:\n"
+        "- \"pubmed\"          → latest research, studies, evidence, guidelines\n"
+        "- \"diagnosis\"       → symptoms, differential diagnosis, clinical assessment\n"
+        "- \"report_analyzer\" → lab results, imaging reports, ECG, pathology, uploaded files\n"
+        "- \"patient\"         → specific named/identified patient history, records, vitals\n"
+        "- \"pharmacology\"    → drugs, medications, dosing, interactions, side effects, contraindications\n\n"
+        "RULES:\n"
+        "1. Return ONLY a valid JSON array containing keys from the list above — never invent new keys\n"
+        "2. Select 1-3 agents maximum\n"
+        "3. NEVER route to 'pubmed' unless research papers or evidence are explicitly requested\n"
+        "4. Symptoms/diagnosis only → [\"diagnosis\"]\n"
+        "5. Named drug question → [\"pharmacology\"]\n"
+        "6. Symptoms + treatment → [\"diagnosis\", \"pharmacology\"]\n"
+        "7. Uploaded file/report/image → always include \"report_analyzer\"\n\n"
+        "EXAMPLES:\n"
+        "\"What is the dose of amoxicillin for a child?\" → [\"pharmacology\"]\n"
+        "\"Patient has fever, cough and low SpO2\" → [\"diagnosis\"]\n"
+        "\"Interpret this CBC: WBC 14k, Hgb 8.2\" → [\"report_analyzer\"]\n"
+        "\"Latest trials on checkpoint inhibitors\" → [\"pubmed\"]\n"
+        "\"John Smith's last visit and his beta blocker dose\" → [\"patient\", \"pharmacology\"]\n"
+        "\"Is metformin safe in CKD stage 4?\" → [\"pharmacology\", \"pubmed\"]\n"
+        "\"45yo with chest pain and diaphoresis — diagnosis and treatment?\" → [\"diagnosis\", \"pharmacology\"]\n\n"
+        "FOLLOW-UP RESOLUTION — if the query uses pronouns (his/her/their/it/the patient/the drug), "
+        "resolve using the Recent Session Context below:\n"
+        "- Prior [patient] + asks about drugs → [\"pharmacology\"]\n"
+        "- Prior [patient] + asks about symptoms → [\"diagnosis\"]\n"
+        "- Prior [pharmacology] + asks about same drug → [\"pharmacology\"]\n"
+        "- Prior [diagnosis] + asks about treatment → [\"pharmacology\"]\n\n"
+        "Return ONLY the JSON array, no explanation, no prose."
     )
 
     file_urls = state.get("file_urls") or []
@@ -819,21 +816,25 @@ async def node_aggregator_with_reretrieval(state: AgentState):
             ]
 
             re_run_keys = list({fb["agent"] for fb in feedback if fb.get("agent") in AGENT_REGISTRY})
-            for agent_key in re_run_keys:
+            context_str = "\n".join(meaningful_context)
+            raw_history_str = "\n".join(state.get("history", []))
+            history_str = privacy_manager.redact_identifying_pii(raw_history_str) if raw_history_str else ""
+            session_id_str = state.get("session_id", "default")
+
+            async def _rerun_agent(agent_key: str) -> str | None:
+                import hashlib as _hashlib
+                import json as _json
                 agent_executor = AGENT_REGISTRY.get(agent_key)
                 if not agent_executor:
-                    continue
-                context_str = "\n".join(meaningful_context)
-                raw_history_str = "\n".join(state.get("history", []))
-                history_str = privacy_manager.redact_identifying_pii(raw_history_str) if raw_history_str else ""
+                    return None
                 enhanced_input = (
                     f"Conversation History:\n{history_str}\n\n"
                     f"Current Request: {state['redacted_input']}"
                     + (f"\n\nContext from Knowledge Core (enriched):\n{context_str}" if context_str else "")
                 )
-                import hashlib as _hashlib
-                _idem_src = f"{state.get('session_id','')}{agent_key}{enhanced_input}"
-                _idem_key = _hashlib.sha256(_idem_src.encode()).hexdigest()
+                _idem_key = _hashlib.sha256(
+                    f"{state.get('session_id','')}{agent_key}{enhanced_input}".encode()
+                ).hexdigest()
                 envelope = Envelope(
                     trace_id=state.get("trace_id", ""),
                     idempotency_key=_idem_key,
@@ -842,21 +843,23 @@ async def node_aggregator_with_reretrieval(state: AgentState):
                     payload={"input": enhanced_input},
                 )
                 if agent_key == "patient":
-                    import json as _json
                     envelope.payload["pii_mapping_json"] = _json.dumps(state.get("pii_mapping", {}))
                 if agent_key == "diagnosis":
                     envelope.payload["knowledge_context"] = context_str
-                session_id_str = state.get("session_id", "default")
                 envelope.payload["live_thoughts_queue"] = ACTIVE_STREAMS.get(session_id_str, [])
                 try:
-                    response = agent_executor.process(envelope)
+                    response = await asyncio.get_event_loop().run_in_executor(
+                        None, agent_executor.process, envelope
+                    )
                     if response.output and not response.error:
-                        extra_outputs.append(
-                            f"## {agent_key.title()} Agent Response (re-retrieved)\n{response.output}"
-                        )
                         logger.info(f"Re-run agent {agent_key} succeeded after re-retrieval")
+                        return f"## {agent_key.title()} Agent Response (re-retrieved)\n{response.output}"
                 except Exception as e:
                     logger.warning(f"Re-run agent {agent_key} failed after re-retrieval", error=str(e))
+                return None
+
+            rerun_results = await asyncio.gather(*[_rerun_agent(k) for k in re_run_keys])
+            extra_outputs.extend(r for r in rerun_results if r is not None)
 
     # Proceed with standard aggregation (original outputs + any re-retrieved outputs)
     raw_outputs = "\n\n".join(state["agent_outputs"] + extra_outputs)
