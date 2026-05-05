@@ -320,7 +320,11 @@ async def node_retrieve_knowledge(state: AgentState):
             HumanMessage(content=user_query)
         ])).content.strip()
         clean_response = response.replace("```json", "").replace("```", "").strip()
-        parsed = json.loads(clean_response)
+        if not clean_response:
+            logger.warning("Entity extractor returned empty response — treating as no entities")
+            parsed = []
+        else:
+            parsed = json.loads(clean_response)
         if isinstance(parsed, list):
             entities = [e for e in parsed if e and str(e).lower() not in ("none", "null")]
     except Exception as e:
