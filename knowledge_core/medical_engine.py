@@ -1,9 +1,10 @@
 
+import asyncio
 import os
 import pickle
 import sys
 import numpy as np
-import requests
+import httpx
 from sklearn.metrics.pairwise import cosine_similarity
 from config import settings
 
@@ -16,7 +17,7 @@ class MedicalReasoningEngine:
     def __init__(self, asset_dir=None):
         print("⚙️  Initializing Medical Reasoning Engine (Optimized)...")
         self.asset_dir = asset_dir if asset_dir else DEFAULT_ASSET_DIR
-        
+
         # A. Load Maps (Concepts & Synonyms)
         maps_path = os.path.join(self.asset_dir, "maps.pkl")
         print(f"   Loading Maps from {maps_path}...")
@@ -36,7 +37,6 @@ class MedicalReasoningEngine:
         vec_path = os.path.join(self.asset_dir, "vectors.npy")
         print(f"   Loading Embeddings from {vec_path}...")
         try:
-            # Use mmap_mode='r' for instant loading
             self.embeddings = np.load(vec_path, mmap_mode='r')
             print(f"   ✅ Brain Loaded: {self.embeddings.shape} matrix.")
         except Exception as e:
@@ -45,37 +45,48 @@ class MedicalReasoningEngine:
 
         print("✅ Engine Online.\n")
 
-    def _aql(self, query, bind_vars=None):
-        """Helper to execute AQL. 10s timeout prevents hanging when ArangoDB is unreachable."""
+    async def _aql(self, client: httpx.AsyncClient, query, bind_vars=None):
+        """Execute AQL query against ArangoDB. Uses shared httpx client for connection reuse."""
         try:
-            resp = requests.post(
+            resp = await client.post(
                 f"{ARANGO_URL}/cursor",
                 json={"query": query, "bindVars": bind_vars or {}},
                 auth=AUTH,
-                timeout=10,
+                timeout=10.0,
             )
             resp.raise_for_status()
             return resp.json().get('result', [])
         except Exception as e:
             print(f"   ⚠️ AQL Error: {e}")
             return []
-            
-    def fetch_node_by_id(self, node_id):
-        # Helper to get node details
+
+    async def fetch_node_by_id(self, node_id):
         aql = "RETURN DOCUMENT(CONCAT('concepts/', @id))"
-        res = self._aql(aql, {"id": node_id})
+        async with httpx.AsyncClient() as client:
+            res = await self._aql(client, aql, {"id": node_id})
         return res[0] if res else None
 
-    def _resolve_candidates(self, user_query):
+    async def _resolve_candidates(self, client: httpx.AsyncClient, user_query):
         """
         Return a list of candidate concept nodes in priority order:
         synonym hit → exact match → fuzzy match.
-        Callers iterate until they find one with graph neighbors.
+        All AQL queries fire in parallel; results are merged in priority order.
         """
-        candidates = []
         query_lower = user_query.lower()
 
-        # Candidate 1: synonym traversal
+        aql_exact = "FOR d IN concepts FILTER d.name == @q LIMIT 1 RETURN d"
+        aql_iexact = "FOR d IN concepts FILTER LOWER(d.name) == @q LIMIT 1 RETURN d"
+        aql_fuzzy = """
+        FOR d IN concepts
+          FILTER LIKE(d.name, CONCAT(@q, "%"), true)
+          SORT LENGTH(d.name) ASC
+          LIMIT 1
+          RETURN d
+        """
+
+        # Build coroutines — synonym AQL only fires if the synonym map has a hit
+        syn_coro = None
+        syn_id = None
         if query_lower in self.synonym_map:
             syn_id = self.synonym_map[query_lower]
             aql_syn = """
@@ -84,37 +95,41 @@ class MedicalReasoningEngine:
               LIMIT 1
               RETURN DOCUMENT(r._to)
             """
-            res = self._aql(aql_syn, {"syn_id": syn_id})
+            syn_coro = self._aql(client, aql_syn, {"syn_id": syn_id})
+
+        coroutines = [
+            self._aql(client, aql_exact, {"q": user_query}),
+            self._aql(client, aql_iexact, {"q": query_lower}),
+            self._aql(client, aql_fuzzy, {"q": user_query}),
+        ]
+        if syn_coro:
+            coroutines.insert(0, syn_coro)
+
+        results = await asyncio.gather(*coroutines, return_exceptions=True)
+
+        candidates = []
+        idx = 0
+        if syn_coro:
+            res = results[idx] if not isinstance(results[idx], Exception) else []
             if res and res[0]:
                 candidates.append(("synonym", res[0]))
+            idx += 1
 
-        # Candidate 2: exact name match
-        aql_exact = "FOR d IN concepts FILTER d.name == @q LIMIT 1 RETURN d"
-        res = self._aql(aql_exact, {"q": user_query})
-        if res:
-            candidates.append(("exact", res[0]))
+        res_exact = results[idx] if not isinstance(results[idx], Exception) else []
+        if res_exact:
+            candidates.append(("exact", res_exact[0]))
 
-        # Candidate 3: case-insensitive exact match
-        aql_iexact = "FOR d IN concepts FILTER LOWER(d.name) == @q LIMIT 1 RETURN d"
-        res = self._aql(aql_iexact, {"q": query_lower})
-        if res:
-            candidates.append(("iexact", res[0]))
+        res_iexact = results[idx + 1] if not isinstance(results[idx + 1], Exception) else []
+        if res_iexact:
+            candidates.append(("iexact", res_iexact[0]))
 
-        # Candidate 4: fuzzy / starts-with
-        aql_fuzzy = """
-        FOR d IN concepts
-          FILTER LIKE(d.name, CONCAT(@q, "%"), true)
-          SORT LENGTH(d.name) ASC
-          LIMIT 1
-          RETURN d
-        """
-        res = self._aql(aql_fuzzy, {"q": user_query})
-        if res:
-            candidates.append(("fuzzy", res[0]))
+        res_fuzzy = results[idx + 2] if not isinstance(results[idx + 2], Exception) else []
+        if res_fuzzy:
+            candidates.append(("fuzzy", res_fuzzy[0]))
 
         return candidates
 
-    def search_and_reason(self, user_query, top_k=10):
+    async def search_and_reason(self, user_query, top_k=10):
         print(f"\n🔎 Query: '{user_query}'")
 
         aql_traverse = """
@@ -128,30 +143,32 @@ class MedicalReasoningEngine:
           }
         """
 
-        # 1. Entity Linking — try each candidate until one has graph neighbors
-        anchor = None
-        facts = []
-        candidates = self._resolve_candidates(user_query)
-        if not candidates:
-            print("❌ Concept not found.")
-            return []
+        async with httpx.AsyncClient() as client:
+            # 1. Resolve candidates — all lookup AQLs fire in parallel
+            candidates = await self._resolve_candidates(client, user_query)
+            if not candidates:
+                print("❌ Concept not found.")
+                return []
 
-        for strategy, node in candidates:
-            start_id = f"concepts/{node['_key']}"
-            candidate_facts = self._aql(aql_traverse, {"startId": start_id})
-            if candidate_facts:
-                anchor = node
-                facts = candidate_facts
-                print(f"   ✅ {strategy}: '{node['name']}' (ID: {node['_key']})")
-                break
-            else:
-                print(f"   ⚠️ {strategy}: '{node['name']}' is an isolate — trying next candidate")
+            # 2. Traverse graph — try candidates in priority order until one has neighbors
+            anchor = None
+            facts = []
+            for strategy, node in candidates:
+                start_id = f"concepts/{node['_key']}"
+                candidate_facts = await self._aql(client, aql_traverse, {"startId": start_id})
+                if candidate_facts:
+                    anchor = node
+                    facts = candidate_facts
+                    print(f"   ✅ {strategy}: '{node['name']}' (ID: {node['_key']})")
+                    break
+                else:
+                    print(f"   ⚠️ {strategy}: '{node['name']}' is an isolate — trying next candidate")
 
         if not anchor:
             print("   ⚠️ All candidates are isolate nodes — no graph facts available.")
             return []
 
-        # 2b. Get embedding vector for cosine ranking
+        # 3. Embedding-based cosine ranking (CPU-bound, no IO)
         anchor_vec = None
         if anchor['_key'] in self.key_to_idx and self.embeddings is not None:
             idx = self.key_to_idx[anchor['_key']]
@@ -159,33 +176,27 @@ class MedicalReasoningEngine:
         else:
             print("   ⚠️ Anchor not in embedding matrix. Ranking disabled.")
 
-        # 3. Reference Ranking
         print(f"   🧠 Reasoning on {len(facts)} retrieved facts...")
         ranked_facts = []
-
         for fact in facts:
             score = 0.0
             if anchor_vec is not None and fact['key'] in self.key_to_idx:
                 tgt_idx = self.key_to_idx[fact['key']]
                 tgt_vec = self.embeddings[tgt_idx].reshape(1, -1)
                 score = cosine_similarity(anchor_vec, tgt_vec)[0][0]
-            
             ranked_facts.append({**fact, "score": float(score)})
 
-        # Sort by Relevance
         ranked_facts.sort(key=lambda x: x['score'], reverse=True)
-        
         return ranked_facts[:top_k]
 
+
 if __name__ == "__main__":
-    # Simple CLI test
     if len(sys.argv) > 1:
         query = " ".join(sys.argv[1:])
         engine = MedicalReasoningEngine()
-        results = engine.search_and_reason(query)
-        
+        results = asyncio.run(engine.search_and_reason(query))
         print(f"   🏆 Context for Agent:")
         for f in results:
-             print(f"      [{f['score']:.4f}] ... --[{f['relation']}]--> {f['name']} (Hop {f['hop']})")
+            print(f"      [{f['score']:.4f}] ... --[{f['relation']}]--> {f['name']} (Hop {f['hop']})")
     else:
         print("Usage: python3 -m knowledge_core.medical_engine <query>")
