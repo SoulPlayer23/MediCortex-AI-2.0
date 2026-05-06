@@ -618,9 +618,12 @@ def node_router(state: AgentState):
     # AND the previous turn was NOT already a clarification, ask the user to elaborate.
     # We suppress a second clarification by checking routing_context for "AI asked for clarification".
     already_clarified = "AI asked for clarification" in routing_context
-    # Suppress clarification when the router already decided on report_analyzer (file is the context)
-    report_analyzer_routed = "report_analyzer" in routes
-    if state.get("retrieval_ambiguous") and not already_clarified and not report_analyzer_routed:
+    # Suppress clarification whenever the router confidently identified a specific agent.
+    # Entity extraction can fail (empty LLM response) while routing still succeeds — in that case
+    # retrieval_ambiguous=True but the query is not actually ambiguous.
+    _KNOWN_AGENTS = {"report_analyzer", "pharmacology", "diagnosis", "patient", "pubmed"}
+    specific_route_found = bool(set(routes) & _KNOWN_AGENTS)
+    if state.get("retrieval_ambiguous") and not already_clarified and not specific_route_found:
         clarification_prompt = (
             "The user's medical query is ambiguous — no specific medical entities could be identified. "
             "Generate ONE short, empathetic clarifying question to ask the user so you can give a "
@@ -1375,12 +1378,18 @@ async def chat_stream_endpoint(request: Request, body: ChatRequest, db: AsyncSes
         try:
             logger.info("Received streaming chat request", message_length=len(body.message))
 
-            # 1. Create/Get Session
+            # 1. Resolve session — create if not provided or if the given UUID doesn't exist
             session_id = body.session_id
             if not session_id:
                 new_session = await chat_service.create_session(db)
                 session_id = new_session.id
                 yield f"data: {json.dumps({'type': 'session_id', 'content': str(session_id)})}\n\n"
+            else:
+                existing = await chat_service.get_session(db, str(session_id))
+                if not existing:
+                    new_session = await chat_service.create_session(db)
+                    session_id = new_session.id
+                    yield f"data: {json.dumps({'type': 'session_id', 'content': str(session_id)})}\n\n"
 
             persistence_state["session_id"] = session_id
             
@@ -1588,11 +1597,16 @@ async def chat_endpoint(request: Request, body: ChatRequest, db: AsyncSession = 
     try:
         logger.info("Received chat request", message_length=len(body.message))
 
-        # 1. Create session if not provided
+        # 1. Resolve session — create if not provided or if the given UUID doesn't exist
         session_id = body.session_id
         if not session_id:
             new_session = await chat_service.create_session(db)
             session_id = new_session.id
+        else:
+            existing = await chat_service.get_session(db, str(session_id))
+            if not existing:
+                new_session = await chat_service.create_session(db)
+                session_id = new_session.id
 
         # 2. Extract file URLs and save user message with attachments
         file_urls = [a["url"] for a in (body.attachments or []) if a.get("url")]
