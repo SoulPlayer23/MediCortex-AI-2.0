@@ -23,15 +23,17 @@ class A2ABaseAgent:
     """
     Base Agent implementing the A2A Protocol with a two-phase execution model:
 
-      Phase 1 — Gemma3:1b (planner):
-        Decides which tools to call, calls them, collects observations.
-        Emits tool thoughts in real-time for SSE streaming.
+      Phase 1 — FunctionGemma 270M (planner):
+        Decides which tools to call and in what order. Uses bind_tools() —
+        FunctionGemma is fine-tuned exclusively for function calling (gemma3:1b
+        does not support the Ollama tool-calling API). Emits tool thoughts in
+        real-time for SSE streaming.
 
       Phase 2 — MedGemma (synthesizer):
         Receives the original query + all gathered tool results.
         Called exactly once to produce the final clinical response.
 
-    This cleanly separates agentic orchestration (Gemma3:1b's strength) from
+    This cleanly separates tool orchestration (FunctionGemma's speciality) from
     medical knowledge synthesis (MedGemma's strength), and eliminates the
     token waste of making a 4B medical model reason about tool selection.
     """
@@ -297,13 +299,13 @@ class A2ABaseAgent:
         - refined_query is a more specific KB search term suggested by the planner,
           or None if context was sufficient.
         """
-        # OPS-4: build planner + bind_tools once per agent instance.
+        # OPS-4 / BUG-9: build planner + bind_tools once per agent instance.
+        # FunctionGemma (270M) is used exclusively here — it is fine-tuned for
+        # function calling and supports the Ollama tool API. gemma3:1b does not.
         if self._planner_with_tools_cached is None:
             self._planner_cached = ChatOllama(
-                model=settings.OLLAMA_CLOUD_MODEL,
-                temperature=1.0,
-                top_p=0.95,
-                top_k=64,
+                model=getattr(settings, "OLLAMA_TOOL_MODEL", "functiongemma"),
+                temperature=0.0,  # FunctionGemma performs best deterministically
                 base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
                 timeout=getattr(settings, "OLLAMA_TIMEOUT_SECONDS", 60),
             )
@@ -314,15 +316,21 @@ class A2ABaseAgent:
 
         messages = [
             SystemMessage(content=(
-                f"You are a data-gathering orchestrator for the {self.name} medical agent. "
-                f"Your ONLY job is to call the available tools to collect all information "
-                f"needed to answer the user's medical query. "
-                f"Do NOT generate a final answer or explain your reasoning — "
-                f"only call tools. Stop when you have gathered sufficient data.\n"
-                f"If after exhausting all tools you still cannot find enough information to "
-                f"answer the query, output exactly: CONTEXT_INSUFFICIENT:<term> where <term> is a "
-                f"SHORT medical search phrase (2-5 words, no sentences, no explanations). "
-                f"Example: CONTEXT_INSUFFICIENT:atrial flutter symptoms. No other text."
+                f"You are a strict function-calling dispatcher for the {self.name} medical agent.\n"
+                f"RULES — read carefully and follow without exception:\n"
+                f"1. You MUST call one or more of the provided tools to gather data. No exceptions.\n"
+                f"2. NEVER write prose, explanations, or a final answer. Output ONLY tool calls.\n"
+                f"3. Call tools one at a time. After each tool result, decide whether more calls are needed.\n"
+                f"4. Stop calling tools only when you have gathered enough data to fully answer the query.\n"
+                f"5. For ANY query — including explanations, mechanisms, or pathophysiology — "
+                f"you MUST call a tool. Extract the key medical topic and pass it as the search term. "
+                f"Examples: 'how does sepsis cause shock' → search_diagnosis(condition='sepsis'); "
+                f"'beta blocker mechanism' → lookup_drug_dosage(drug_name='metoprolol'). "
+                f"Refusing to call a tool is NEVER allowed.\n"
+                f"6. Only if ALL tools have been exhausted and data is still missing, output EXACTLY:\n"
+                f"   CONTEXT_INSUFFICIENT:<2-5 word medical search term>\n"
+                f"   No other text. No explanation.\n"
+                f"Available tools: {', '.join(self.tools.keys())}"
             )),
             HumanMessage(content=user_input),
         ]

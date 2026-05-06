@@ -31,9 +31,12 @@ class Settings(BaseSettings):
     # Concurrency / worker affinity (OPS-3)
     WEB_CONCURRENCY: int = 1
 
-    # Ollama (Router / Aggregator / Extractor / Agent Planner / Fallback synthesizer)
+    # Ollama (Router / Aggregator / Extractor / Fallback synthesizer)
     OLLAMA_CLOUD_URL: str = "http://homeserver:11434"
     OLLAMA_CLOUD_MODEL: str = "gemma3:1b"
+    # Dedicated tool-calling model (BUG-9): FunctionGemma 270M is fine-tuned
+    # exclusively for function calling and supports bind_tools(); gemma3:1b does not.
+    OLLAMA_TOOL_MODEL: str = "functiongemma"
     OLLAMA_TIMEOUT_SECONDS: int = 60  # OPS-4
 
     # MinIO
