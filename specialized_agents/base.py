@@ -1,7 +1,9 @@
 import inspect
 import logging
 import re
+import time as _time
 import redis
+import structlog
 from typing import List, Dict, Any, Optional, Tuple
 
 from langchain_core.tools import BaseTool
@@ -12,7 +14,17 @@ from .medgemma_llm import MedGemmaLLM
 from .protocols import AgentCard, Envelope, AgentResponse
 from config import settings
 
-logger = logging.getLogger("SpecializedAgents")
+logger = structlog.get_logger("SpecializedAgents")
+
+
+def _llm_invoke_audit(llm_obj, messages, *, agent: str, role: str) -> any:
+    """Sync LLM call with structured audit log: model name, agent, role, RTT."""
+    model = getattr(llm_obj, "model", None) or getattr(llm_obj, "model_name", None) or type(llm_obj).__name__
+    t0 = _time.monotonic()
+    result = llm_obj.invoke(messages)
+    rtt_ms = round((_time.monotonic() - t0) * 1000)
+    logger.info("llm_call", model=model, agent=agent, role=role, rtt_ms=rtt_ms)
+    return result
 
 # MedGemma — used exclusively for clinical synthesis (Phase 2).
 # Tool orchestration is handled by Gemma3:1b (Phase 1).
@@ -340,7 +352,7 @@ class A2ABaseAgent:
         sources: List[dict] = []
 
         for _ in range(self.max_iterations):
-            response = planner_with_tools.invoke(messages)
+            response = _llm_invoke_audit(planner_with_tools, messages, agent=self.name, role="planner")
             messages.append(response)
 
             if not response.tool_calls:
@@ -461,7 +473,9 @@ class A2ABaseAgent:
                 f"Provide your clinical response:"
             )
 
+        t0_synth = _time.monotonic()
         output = self.llm.invoke(prompt)
+        synth_rtt_ms = round((_time.monotonic() - t0_synth) * 1000)
 
         # Repetition guard: MedGemma sometimes loops a single sentence when it
         # receives a prompt it cannot ground (e.g. empty KB context). Detect and
@@ -479,12 +493,14 @@ class A2ABaseAgent:
                     top_k=64,
                     base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
                 )
+                t0_fb = _time.monotonic()
                 output = fallback.invoke([_HumanMessage(content=prompt)]).content
-                logger.info(f"[{self.name}] synthesis complete", model="gemma3_fallback", chars=len(output))
+                fb_rtt_ms = round((_time.monotonic() - t0_fb) * 1000)
+                logger.info("llm_call", model=settings.OLLAMA_CLOUD_MODEL, agent=self.name, role="synthesis_fallback", rtt_ms=fb_rtt_ms, chars=len(output))
             except Exception as e:
                 logger.error(f"[{self.name}] Gemma3:1b fallback also failed: {e}")
         else:
-            logger.info(f"[{self.name}] synthesis complete", model="medgemma", chars=len(output))
+            logger.info("llm_call", model="medgemma", agent=self.name, role="synthesis", rtt_ms=synth_rtt_ms, chars=len(output))
         return output
 
     @staticmethod

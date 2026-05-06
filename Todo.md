@@ -390,6 +390,16 @@ pytest tests/stress/ -v --tb=short -m stress
 
 **Effect:** After any real user request, the worker stays warm for the next ~5 min at a cost of ~37 pings (each ~1s inference = negligible). Outside active windows, zero cost.
 
+#### BUG-9 — Agent planner uses `gemma3:1b` which does not support `bind_tools` → all agents fail tool gathering
+**File:** `specialized_agents/base.py:302` (`_gather_tool_results`)
+**Symptom:** `[agent] Tool gathering failed: registry.ollama.ai/library/gemma3:1b does not support tools (status code: 400)` for every agent (pharmacology, patient, report_analyzer). All agents run with zero tool observations and fall through to MedGemma synthesis with no data.
+**Root cause:** `ChatOllama(model=settings.OLLAMA_CLOUD_MODEL, ...)` uses `gemma3:1b` for `bind_tools()`. Gemma3 1B does not implement the Ollama tool-calling API.
+**Fix options (needs planning):**
+- Switch planner to a Groq model that supports tools (e.g. `llama-3.1-8b-instant` — already have `GROQ_API_KEY`).
+- Switch planner to a different Ollama model on homeserver that supports tools (e.g. `llama3.2`, `qwen2.5`).
+- Implement manual tool dispatch without `bind_tools` (parse LLM output to extract tool name + args).
+**Priority:** Critical — agents cannot gather any tool data until resolved.
+
 #### BUG-8 — Pharmacology agent has no dosage lookup tool → score=1 on dosage queries
 **File:** `specialized_agents/drug_agent.py`
 **Symptom:** Queries like "What is the recommended dosage of amoxicillin for adults?" route to `pharmacology` but the agent's only tools are `check_drug_interactions` and `recommend_drugs` — neither handles dosage lookup. The agent skips tool calls entirely and MedGemma synthesizes from KB context alone, producing off-topic output (reviewer score=1, "does not address the query"). Observed 2026-05-04 on amoxicillin dosage query.

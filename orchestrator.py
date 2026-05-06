@@ -200,6 +200,34 @@ ACTIVE_STREAMS = {}
 # ==========================================
 _KB_EMPTY_SENTINEL = "No specific knowledge found in graph."
 
+import time as _time
+
+def _model_label(llm_obj) -> str:
+    """Return a short human-readable model name from any LangChain LLM object."""
+    for attr in ("model", "model_name"):
+        val = getattr(llm_obj, attr, None)
+        if val:
+            return str(val)
+    return type(llm_obj).__name__
+
+async def llm_ainvoke(llm_obj, messages, *, role: str = "") -> any:
+    """Async LLM call with structured audit log: model name + round-trip time."""
+    model = _model_label(llm_obj)
+    t0 = _time.monotonic()
+    result = await llm_obj.ainvoke(messages)
+    rtt_ms = round((_time.monotonic() - t0) * 1000)
+    logger.info("llm_call", model=model, role=role, rtt_ms=rtt_ms)
+    return result
+
+def llm_invoke(llm_obj, messages, *, role: str = "") -> any:
+    """Sync LLM call with structured audit log: model name + round-trip time."""
+    model = _model_label(llm_obj)
+    t0 = _time.monotonic()
+    result = llm_obj.invoke(messages)
+    rtt_ms = round((_time.monotonic() - t0) * 1000)
+    logger.info("llm_call", model=model, role=role, rtt_ms=rtt_ms)
+    return result
+
 
 @tool
 async def consult_medical_knowledge(query: str) -> str:
@@ -226,6 +254,65 @@ extractor_llm = None  # Fast model for entity extraction (reuses Gemma3 llm inst
 # ==========================================
 # 🕸️ LANGGRAPH NODES
 # ==========================================
+async def node_scope_guard(state: AgentState):
+    """
+    First node — rejects non-medical queries before anything else runs.
+
+    Uses Groq llama-3.3-70b (same model as the reviewer judge) for a reliable
+    1/0 classification. On out-of-scope, sets final_output so the conditional
+    edge skips directly to restore_privacy → END without touching KB or agents.
+    Falls back to in-scope if GROQ_API_KEY is not set or the call fails.
+    """
+    logger.info("NODE: SCOPE GUARD")
+    query = state.get("input", "")
+
+    if not settings.GROQ_API_KEY:
+        logger.warning("Scope guard skipped — GROQ_API_KEY not set")
+        return {}
+
+    prompt = (
+        "You are a medical AI scope filter. Reply with ONLY '1' (in scope) or '0' (out of scope). "
+        "No explanation, no punctuation — a single digit.\n\n"
+        "IN SCOPE: medicine, diseases, symptoms, drugs, pharmacology, anatomy, physiology, biology, "
+        "lab results, medical procedures, patient care, mental health, genetics, nutrition related "
+        "to health, public health, veterinary medicine.\n\n"
+        "OUT OF SCOPE: cooking, travel, sports, politics, programming, history, entertainment, "
+        "celebrity news, general trivia, math problems, creative writing, anything unrelated to "
+        "health or biology.\n\n"
+        "Reply: 1 or 0"
+    )
+
+    in_scope = True
+    try:
+        scope_llm = ChatGroq(model="llama-3.3-70b-versatile", api_key=settings.GROQ_API_KEY, temperature=0)
+        raw = (await llm_ainvoke(scope_llm, [
+            SystemMessage(content=prompt),
+            HumanMessage(content=query),
+        ], role="scope_guard")).content.strip()
+        in_scope = not raw.startswith("0")
+        logger.info("Scope guard result", raw=raw, in_scope=in_scope, query=query[:80])
+    except Exception as e:
+        logger.warning("Scope guard LLM call failed — defaulting to in-scope", error=str(e))
+
+    if not in_scope:
+        return {
+            "final_output": (
+                "I'm MediCortex, a medical AI assistant. I can only help with medical, "
+                "clinical, or biological questions. Please ask me something health-related."
+            ),
+            "agents_used": ["scope_guard"],
+            "agent_outputs": [],
+            "agent_thoughts": [],
+            "agent_sources": [],
+            "retrieval_ambiguous": False,
+            "retrieval_iteration": state.get("retrieval_iteration", 0),
+            "retrieval_feedback": [],
+            "re_retrieval_skipped": False,
+        }
+
+    return {}
+
+
 def node_analyze_privacy(state: AgentState):
     import uuid as _uuid
     trace_id = state.get("trace_id") or str(_uuid.uuid4())
@@ -255,9 +342,9 @@ async def _refine_kb_context(term: str, raw_facts: str) -> str:
     )
     try:
         if "No specific knowledge found" not in raw_facts:
-            refined = (await llm.ainvoke([
+            refined = (await llm_ainvoke(llm, [
                 SystemMessage(content=refinement_prompt.format(facts=raw_facts))
-            ])).content.strip()
+            ], role="kb_refine")).content.strip()
             logger.info("Context Refined", term=term)
             return f"[KB: {term}]\n{refined}"
         return f"[KB: {term}]\n{raw_facts}"
@@ -284,22 +371,24 @@ async def node_retrieve_knowledge(state: AgentState):
 
     system_prompt = (
         "You are a medical entity extractor. "
-        "Extract ALL distinct medical entities (diseases, symptoms, drugs, procedures) from the user's query. "
-        "Return a JSON array of entity strings. Return [] if none found.\n\n"
+        "Your ONLY job is to identify the medical CONDITIONS, DRUGS, or PROCEDURES being asked about — NOT to list their symptoms or effects.\n\n"
+        "Return a JSON array of entity strings and NOTHING else. No explanation, no prose, no markdown.\n\n"
+        "CRITICAL RULE: Extract the SUBJECT of the query, not the content.\n"
+        "  'symptoms of diabetes' → [\"Diabetes\"]  (the subject is diabetes, not the symptoms)\n"
+        "  'causes of hypertension' → [\"Hypertension\"]  (the subject is hypertension)\n"
+        "  'what does metformin treat' → [\"Metformin\"]\n\n"
         "RULE: Generic anatomical terms alone (heart, back, stomach, head, chest, leg, arm) "
-        "with no qualifying condition are NOT medical entities — return [].\n\n"
-        "Examples:\n"
-        "User: 'interactions between metformin and lisinopril' -> [\"metformin\", \"lisinopril\"]\n"
-        "User: 'symptoms of Heart Attack' -> [\"Heart Attack\"]\n"
-        "User: 'Patient has high fever and diabetes' -> [\"Fever\", \"Diabetes\"]\n"
-        "User: 'my heart feels weird' -> []\n"
-        "User: 'my back hurts' -> []\n"
-        "User: 'I feel sick' -> []\n"
-        "User: 'something feels wrong' -> []\n"
-        "User: 'my stomach' -> []\n"
-        "User: 'I don't feel well' -> []\n"
-        "User: 'heart failure symptoms' -> [\"Heart Failure\"]\n"
-        "User: 'back pain disorder treatment' -> [\"Back Pain Disorder\"]"
+        "with no qualifying condition are NOT entities — return [].\n\n"
+        "More examples:\n"
+        "  'interactions between metformin and lisinopril' → [\"metformin\", \"lisinopril\"]\n"
+        "  'symptoms of Heart Attack' → [\"Heart Attack\"]\n"
+        "  'Patient has high fever and diabetes' → [\"Fever\", \"Diabetes\"]\n"
+        "  'heart failure treatment options' → [\"Heart Failure\"]\n"
+        "  'back pain disorder treatment' → [\"Back Pain Disorder\"]\n"
+        "  'my heart feels weird' → []\n"
+        "  'I feel sick' → []\n\n"
+        "Output format — ONLY this, nothing else:\n"
+        "[\"Entity1\", \"Entity2\"]"
     )
 
     # Generic body parts with no qualifying condition — not actionable medical entities.
@@ -315,16 +404,24 @@ async def node_retrieve_knowledge(state: AgentState):
     retrieval_ambiguous = False
     try:
         _extr = extractor_llm or llm
-        response = (await _extr.ainvoke([
+        response = (await llm_ainvoke(_extr, [
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_query)
-        ])).content.strip()
+        ], role="entity_extract")).content.strip()
         clean_response = response.replace("```json", "").replace("```", "").strip()
         if not clean_response:
             logger.warning("Entity extractor returned empty response — treating as no entities")
             parsed = []
         else:
-            parsed = json.loads(clean_response)
+            try:
+                parsed = json.loads(clean_response)
+            except json.JSONDecodeError:
+                # gemma3:1b sometimes wraps the array in prose — extract the first [...] block
+                import re as _re_json
+                m = _re_json.search(r'\[.*?\]', clean_response, _re_json.DOTALL)
+                parsed = json.loads(m.group()) if m else []
+                if parsed:
+                    logger.warning("Entity extractor returned prose — recovered JSON array via regex")
         if isinstance(parsed, list):
             entities = [e for e in parsed if e and str(e).lower() not in ("none", "null")]
     except Exception as e:
@@ -380,19 +477,34 @@ async def node_retrieve_knowledge(state: AgentState):
 
     async def _expand_entities_batch(entity_list: list[str]) -> dict[str, list[str]]:
         prompt = (
-            "You are a medical terminology expert. Given a list of clinical entities, return a JSON object "
-            "where each key is an entity and the value is an array of 3 synonyms, abbreviations, or related "
-            "terms that a medical knowledge graph might store separately. "
-            "Return ONLY valid JSON, no prose, no code fences. Do not repeat the input term in its own array.\n\n"
-            "Examples:\n"
+            "You are a medical terminology expert.\n"
+            "Return a SINGLE JSON object where each key is one of the given entities and its value is "
+            "an array of exactly 3 synonyms/abbreviations/related terms from a medical knowledge graph.\n"
+            "CRITICAL: Output ONE JSON object only — not multiple objects, not prose, not code fences.\n\n"
+            "Output format (ONLY this):\n"
+            "{\"Entity1\": [\"syn1\", \"syn2\", \"syn3\"], \"Entity2\": [\"syn1\", \"syn2\", \"syn3\"]}\n\n"
+            "Example for [\"metformin\", \"heart failure\"]:\n"
             "{\"metformin\": [\"biguanide\", \"Glucophage\", \"oral hypoglycemic\"], "
-            "\"heart failure\": [\"CHF\", \"cardiac failure\", \"cardiomyopathy\"], "
-            "\"hypertension\": [\"HTN\", \"high blood pressure\", \"elevated BP\"]}\n\n"
+            "\"heart failure\": [\"CHF\", \"cardiac failure\", \"cardiomyopathy\"]}\n\n"
             f"Entities: {json.dumps(entity_list)}"
         )
         try:
-            raw = (await _extr.ainvoke([HumanMessage(content=prompt)])).content.strip()
-            parsed = json.loads(raw.replace("```json", "").replace("```", "").strip())
+            raw = (await llm_ainvoke(_extr, [HumanMessage(content=prompt)], role="entity_expand")).content.strip()
+            clean = raw.replace("```json", "").replace("```", "").strip()
+            try:
+                parsed = json.loads(clean)
+            except json.JSONDecodeError:
+                # gemma3:1b sometimes emits one JSON object per line — merge them
+                import re as _re_exp
+                merged: dict = {}
+                for m in _re_exp.finditer(r'\{[^{}]+\}', clean, _re_exp.DOTALL):
+                    try:
+                        merged.update(json.loads(m.group()))
+                    except json.JSONDecodeError:
+                        pass
+                parsed = merged if merged else {}
+                if parsed:
+                    logger.warning("Expansion returned split objects — merged via regex")
             if isinstance(parsed, dict):
                 return parsed
         except Exception as exp_err:
@@ -484,7 +596,7 @@ async def node_retrieve_knowledge_v2(state: AgentState):
             f"Entities: {json.dumps(term_list)}"
         )
         try:
-            raw = (await _extr.ainvoke([HumanMessage(content=prompt)])).content.strip()
+            raw = (await llm_ainvoke(_extr, [HumanMessage(content=prompt)], role="entity_expand")).content.strip()
             parsed = json.loads(raw.replace("```json", "").replace("```", "").strip())
             if isinstance(parsed, dict):
                 return parsed
@@ -602,10 +714,17 @@ def node_router(state: AgentState):
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
     
     try:
-        response = llm.invoke(messages).content
+        response = llm_invoke(llm, messages, role="router").content
         clean_response = response.replace("```json", "").replace("```", "").strip()
         clean_response = clean_response.replace("'", '"')
-        routes = json.loads(clean_response)
+        try:
+            routes = json.loads(clean_response)
+        except json.JSONDecodeError:
+            import re as _re_router
+            m = _re_router.search(r'\[.*?\]', clean_response, _re_router.DOTALL)
+            routes = json.loads(m.group()) if m else ["diagnosis"]
+            if m:
+                logger.warning("Router returned prose — recovered JSON array via regex")
         if not isinstance(routes, list):
             routes = ["diagnosis"]
     except Exception as e:
@@ -634,10 +753,10 @@ def node_router(state: AgentState):
             "Output only the question, no preamble."
         )
         try:
-            clarification_q = llm.invoke([
+            clarification_q = llm_invoke(llm, [
                 SystemMessage(content=clarification_prompt),
                 HumanMessage(content=f"User query: {input_text}"),
-            ]).content.strip()
+            ], role="clarification").content.strip()
             logger.info("Clarification question generated", question=clarification_q)
             return {
                 "messages": [AIMessage(content='["__clarify__"]')],
@@ -720,7 +839,9 @@ def make_agent_node(agent_key: str):
             envelope.payload["live_thoughts_queue"] = live_thoughts
             
             # Call Agent via Process
+            _t0_agent = _time.monotonic()
             response = agent_executor.process(envelope)
+            logger.info("agent_call", agent=agent_key, rtt_ms=round((_time.monotonic() - _t0_agent) * 1000))
             
             # Capture thinking steps (already prefixed by emit_thought in base.py)
             thoughts = response.thinking if response.thinking else []
@@ -895,7 +1016,7 @@ async def node_aggregator_with_reretrieval(state: AgentState):
     )
 
     try:
-        formatted = (await llm.ainvoke([HumanMessage(content=formatting_prompt)])).content
+        formatted = (await llm_ainvoke(llm, [HumanMessage(content=formatting_prompt)], role="aggregator_format")).content
     except Exception:
         formatted = raw_outputs
 
@@ -1020,7 +1141,7 @@ Reply with ONLY a JSON object in this exact format, no other text:
             temperature=0,
             max_tokens=100,
         )
-        result = judge_llm.invoke([HumanMessage(content=judge_prompt)]).content
+        result = llm_invoke(judge_llm, [HumanMessage(content=judge_prompt)], role="reviewer").content
         return json.loads(result.strip())
 
     # ── Call judge with fallback ──────────────────────────────────────
@@ -1276,6 +1397,7 @@ async def lifespan(app: FastAPI):
 
     # ── 4. LangGraph Workflow ──────────────────────────────────────────
     workflow = StateGraph(AgentState)
+    workflow.add_node("scope_guard", node_scope_guard)
     workflow.add_node("analyze_privacy", node_analyze_privacy)
     workflow.add_node("retrieve_knowledge", node_retrieve_knowledge)
     workflow.add_node("router", node_router)
@@ -1288,7 +1410,11 @@ async def lifespan(app: FastAPI):
     workflow.add_node("aggregator", node_aggregator_with_reretrieval)     # RAG-1 Part B inline
     workflow.add_node("reviewer", node_reviewer)       # A2A §5.2 — Model-as-Judge
     workflow.add_node("restore_privacy", node_restore_privacy)
-    workflow.set_entry_point("analyze_privacy")
+    workflow.set_entry_point("scope_guard")
+    workflow.add_conditional_edges("scope_guard", lambda s: "restore_privacy" if s.get("final_output") else "analyze_privacy", {
+        "restore_privacy": "restore_privacy",
+        "analyze_privacy": "analyze_privacy",
+    })
     workflow.add_edge("analyze_privacy", "retrieve_knowledge")
     workflow.add_edge("retrieve_knowledge", "router")
     workflow.add_conditional_edges("router", route_decision, {
