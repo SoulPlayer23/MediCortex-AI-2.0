@@ -471,9 +471,11 @@ class A2ABaseAgent:
                 f"Provide your clinical response:"
             )
 
+        logger.info("medgemma_request", agent=self.name, prompt_chars=len(prompt), prompt_preview=prompt[:300])
         t0_synth = _time.monotonic()
         output = self.llm.invoke(prompt)
         synth_rtt_ms = round((_time.monotonic() - t0_synth) * 1000)
+        logger.info("medgemma_response", agent=self.name, rtt_ms=synth_rtt_ms, response_chars=len(output), response_preview=output[:500])
 
         # Repetition guard: MedGemma sometimes loops a single sentence when it
         # receives a prompt it cannot ground (e.g. empty KB context). Detect and

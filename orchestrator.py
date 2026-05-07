@@ -1119,7 +1119,10 @@ def node_reviewer(state: AgentState):
 
     judge_prompt = f"""You are a clinical quality reviewer for a medical AI assistant.
 
-Evaluate the following response on a scale of 1–5:
+CURRENT USER QUERY (your evaluation target — ignore all other queries):
+>>> {original_query} <<<
+
+Evaluate the "Response to evaluate" below on a scale of 1–5:
 1 = Completely off-topic, dangerous, or hallucinates facts
 2 = Partially relevant but contains significant errors or unsupported claims
 3 = Relevant and mostly accurate, minor gaps acceptable
@@ -1127,9 +1130,8 @@ Evaluate the following response on a scale of 1–5:
 5 = Excellent — accurate, complete, evidence-based, safe for clinical context
 
 IMPORTANT — what to evaluate:
-- Evaluate ONLY whether the "Response to evaluate" addresses the "Current User Query" shown below.
-- The "Conversation History" is provided for context only — do NOT evaluate whether the response addresses any earlier query in the history.
-- The current query is the one labeled "Current User Query", not any query that appears in the history.
+- Evaluate ONLY whether the "Response to evaluate" addresses the CURRENT USER QUERY shown above.
+- The "Conversation History" below is for continuity context ONLY — do NOT evaluate against any earlier query.
 
 Criteria to check:
 - Does the response directly address the CURRENT USER QUERY (not a prior query)?
@@ -1140,13 +1142,11 @@ Criteria to check:
 - When a document was attached: does the response accurately reflect the extracted document content without omitting key findings?
 - Agents that generated this response: {agents_str}
 
-{conversation_block}{doc_context_block}Current User Query (evaluate against THIS query ONLY): {original_query}
-
-Response to evaluate:
+{conversation_block}{doc_context_block}Response to evaluate:
 {truncated}
 
 Reply with ONLY a JSON object in this exact format, no other text:
-{{"score": <1-5>, "reason": "<one sentence>", "confidence": "<0-100>%"}}"""
+{{"score": <1-5>, "reason": "<one sentence referencing the query above>", "confidence": "<0-100>%"}}"""
 
     def _call_groq(model_name: str) -> dict:
         judge_llm = ChatGroq(
