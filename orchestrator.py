@@ -249,7 +249,7 @@ def _kb_context_is_empty(context_sections: list) -> bool:
     return True
 
 llm = None
-extractor_llm = None  # Fast model for entity extraction (reuses Gemma3 llm instance)
+extractor_llm = None  # Fast model for entity extraction (reuses Ollama llm instance)
 
 # ==========================================
 # 🕸️ LANGGRAPH NODES
@@ -416,7 +416,7 @@ async def node_retrieve_knowledge(state: AgentState):
             try:
                 parsed = json.loads(clean_response)
             except json.JSONDecodeError:
-                # gemma3:1b sometimes wraps the array in prose — extract the first [...] block
+                # model sometimes wraps the array in prose — extract the first [...] block
                 import re as _re_json
                 m = _re_json.search(r'\[.*?\]', clean_response, _re_json.DOTALL)
                 parsed = json.loads(m.group()) if m else []
@@ -494,7 +494,7 @@ async def node_retrieve_knowledge(state: AgentState):
             try:
                 parsed = json.loads(clean)
             except json.JSONDecodeError:
-                # gemma3:1b sometimes emits one JSON object per line — merge them
+                # model sometimes emits one JSON object per line — merge them
                 import re as _re_exp
                 merged: dict = {}
                 for m in _re_exp.finditer(r'\{[^{}]+\}', clean, _re_exp.DOTALL):
@@ -1372,12 +1372,12 @@ async def lifespan(app: FastAPI):
     logger.info("Instantiating PrivacyManager Singleton")
     privacy_manager = PrivacyManager()
 
-    # ── 3. Gemma3 via Ollama Cloud (Router / Aggregator / Extractor) ────
-    # Replaces GPT-4o-mini everywhere. A warmup call is issued at startup
-    # so the first user request is served from a hot model.
+    # ── 3. Ollama Cloud LLM (Router / Aggregator / Extractor) ───────────
+    # A warmup call is issued at startup so the first user request is served
+    # from a hot model.
     try:
         _ollama_base = settings.OLLAMA_CLOUD_URL.removesuffix("/v1")
-        logger.info("Initializing Gemma3 LLM Client (ChatOllama)", model=settings.OLLAMA_CLOUD_MODEL, base_url=_ollama_base)
+        logger.info("Initializing Ollama LLM Client (ChatOllama)", model=settings.OLLAMA_CLOUD_MODEL, base_url=_ollama_base)
         llm = ChatOllama(
             model=settings.OLLAMA_CLOUD_MODEL,
             temperature=1.0,
@@ -1385,7 +1385,7 @@ async def lifespan(app: FastAPI):
             top_k=64,
             base_url=_ollama_base,
         )
-        logger.info("Gemma3 Client Ready — warming up model (first request may load model)")
+        logger.info("Ollama Client Ready — warming up model (first request may load model)")
         # Warmup call: fires asynchronously so startup doesn't block.
         # Runs as a background asyncio task — completes before first user message arrives
         # if startup took ≥ 5 minutes (typical Ollama Cloud cold-start for 31B).
@@ -1397,16 +1397,16 @@ async def lifespan(app: FastAPI):
                     None,
                     lambda: llm.invoke([_WarmupMsg(content="ping")])
                 )
-                logger.info("Gemma3 warmup complete — model is hot")
+                logger.info("Ollama warmup complete — model is hot")
             except Exception as _we:
-                logger.warning("Gemma3 warmup failed (model may still be loading)", error=str(_we))
+                logger.warning("Ollama warmup failed (model may still be loading)", error=str(_we))
         _asyncio.create_task(_warmup())
-        logger.info("Gemma3 LLM Ready (ChatOllama)", model=settings.OLLAMA_CLOUD_MODEL, base_url=_ollama_base, status="success")
+        logger.info("Ollama LLM Ready (ChatOllama)", model=settings.OLLAMA_CLOUD_MODEL, base_url=_ollama_base, status="success")
     except Exception as e:
-        logger.error("Gemma3 Ollama Cloud setup failed", error=str(e))
+        logger.error("Ollama Cloud setup failed", error=str(e))
         llm = None
 
-    # extractor_llm reuses the same Gemma3 instance for entity extraction
+    # extractor_llm reuses the same Ollama instance for entity extraction
     extractor_llm = llm
 
     # ── 4. LangGraph Workflow ──────────────────────────────────────────
