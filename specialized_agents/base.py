@@ -317,6 +317,7 @@ class A2ABaseAgent:
                 temperature=0.0,
                 base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
                 timeout=getattr(settings, "OLLAMA_TIMEOUT_SECONDS", 60),
+                think=False,  # tool-call planning is structured — thinking adds no value
             )
             self._planner_with_tools_cached = self._planner_cached.bind_tools(
                 list(self.tools.values())

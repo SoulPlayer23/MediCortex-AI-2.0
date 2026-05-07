@@ -1384,6 +1384,7 @@ async def lifespan(app: FastAPI):
             top_p=0.95,
             top_k=64,
             base_url=_ollama_base,
+            think=False,  # router/aggregator/extractor don't need chain-of-thought
         )
         logger.info("Ollama Client Ready — warming up model (first request may load model)")
         # Warmup call: fires asynchronously so startup doesn't block.
