@@ -995,18 +995,27 @@ async def node_aggregator_with_reretrieval(state: AgentState):
     formatting_prompt = (
         "You are the MediCortex Interface. Format the following medical agent reports into "
         "a beautiful, human-readable Markdown response.\n"
-        "Use bolding, italics, bullet points, and headers to make it easy to read.\n"
-        "DEDUPLICATION RULES (apply before formatting):\n"
-        "1. If multiple agents recommend the same specialist referral or action, merge them into a single entry — do not repeat the same recommendation under different headings.\n"
-        "2. If multiple source snippets convey the same fact (e.g. the same sentence from the same or different sources), keep only the first occurrence and drop all subsequent duplicates.\n"
-        "3. Near-identical recommendations that differ only in minor wording should be consolidated into one.\n"
-        "Do not change any factual content beyond deduplication.\n\n"
+        "Use bolding, italics, bullet points, and headers to make it easy to read.\n\n"
+        "OPENING RULES:\n"
+        "- Begin DIRECTLY with the clinical content. Do NOT open with any acknowledgment phrase such as "
+        "'Okay', 'Sure', 'Here is', 'Here\\'s', 'Of course', 'Certainly', 'Below is', or any similar filler.\n"
+        "- Do NOT open with a declaration like 'Okay, here\\'s the Markdown response' or "
+        "'I\\'ve formatted the response as requested' — just write the response.\n\n"
         "HEADING RULES:\n"
+        "- Do NOT preserve or repeat the internal section labels from the raw reports (e.g. "
+        "'Pharmacology Agent Response', 'Diagnosis Agent Response', 'PubMed Agent Response', "
+        "'Report Analyzer Agent Response', 'Patient Agent Response', or any '## X Agent Response' pattern). "
+        "These are internal pipeline labels — strip them out entirely.\n"
         "- Do NOT open the response with a generic heading like 'Medical Agent Reports', "
-        "'Medical Agent Reports on [Topic]', 'Medical Agent Reports Summary', or any similar variation.\n"
+        "'Medical Agent Reports on [Topic]', 'Comprehensive Clinical Guidance', 'Medical Agent Reports Summary', or any similar variation.\n"
         "- If a heading is needed, use a concise topic-specific heading (e.g. 'Hypertension: Symptoms & First-Line Treatment'). "
         "For shorter responses, omit the heading entirely.\n"
         "- The response must read as expert clinical guidance, not as an internal pipeline report.\n\n"
+        "DEDUPLICATION RULES (apply before formatting):\n"
+        "1. If multiple agents recommend the same specialist referral or action, merge them into a single entry — do not repeat the same recommendation under different headings.\n"
+        "2. If multiple source snippets convey the same fact, keep only the first occurrence and drop all subsequent duplicates.\n"
+        "3. Near-identical recommendations that differ only in minor wording should be consolidated into one.\n"
+        "Do not change any factual content beyond deduplication.\n\n"
         "CITATION RULES (only apply if the raw reports contain URLs):\n"
         "- If the raw reports contain source URLs, add inline citation numbers like [1], [2] at the end of each sentence or claim that is supported by a source.\n"
         "- Collect all unique cited URLs and append a '## References' section at the very end of the response, formatted as a numbered markdown list: '1. [Title](url)'\n"
@@ -1117,8 +1126,13 @@ Evaluate the following response on a scale of 1–5:
 4 = Accurate, grounded in evidence, clearly addresses the query
 5 = Excellent — accurate, complete, evidence-based, safe for clinical context
 
+IMPORTANT — what to evaluate:
+- Evaluate ONLY whether the "Response to evaluate" addresses the "Current User Query" shown below.
+- The "Conversation History" is provided for context only — do NOT evaluate whether the response addresses any earlier query in the history.
+- The current query is the one labeled "Current User Query", not any query that appears in the history.
+
 Criteria to check:
-- Does the response address the user's query IN THE CONTEXT of the conversation history?
+- Does the response directly address the CURRENT USER QUERY (not a prior query)?
 - Are all clinical claims grounded in tool outputs (no fabricated facts)?
 - Does the response contain leaked PII placeholders (e.g. <PERSON_1>)? NOTE: placeholders like <PERSON_1> are intentional de-identification tokens used by the privacy layer and are NOT a quality defect — do NOT penalise the score for their presence.
 - Is the response safe for a medical assistant context?
@@ -1126,7 +1140,7 @@ Criteria to check:
 - When a document was attached: does the response accurately reflect the extracted document content without omitting key findings?
 - Agents that generated this response: {agents_str}
 
-{conversation_block}{doc_context_block}Current User Query: {original_query}
+{conversation_block}{doc_context_block}Current User Query (evaluate against THIS query ONLY): {original_query}
 
 Response to evaluate:
 {truncated}
@@ -1541,7 +1555,7 @@ async def chat_stream_endpoint(request: Request, body: ChatRequest, db: AsyncSes
             agent_thoughts = []
             final_output = ""
             msg_metadata = {
-                "llm_used": "MedGemma (via HF) / Gemma3 Router",
+                "llm_used": "MedGemma (via HF) / gemma4:31b-cloud Router",
                 "judge_score": None,
                 "judge_reason": None,
                 "judge_confidence": None,
@@ -1769,7 +1783,7 @@ async def chat_endpoint(request: Request, body: ChatRequest, db: AsyncSession = 
         agent_thinking = result.get("agent_thoughts", [])
 
         msg_metadata = {
-            "llm_used": "MedGemma (via HF) / Gemma3 Router",
+            "llm_used": "MedGemma (via HF) / gemma4:31b-cloud Router",
             "judge_score": result.get("judge_score"),
             "judge_reason": result.get("judge_reason"),
             "judge_confidence": result.get("judge_confidence"),

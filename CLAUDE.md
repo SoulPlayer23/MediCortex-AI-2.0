@@ -88,8 +88,8 @@ Registry key, `A2ABaseAgent.name`, and `AgentCard.name` **must all match**.
 All agents extend `A2ABaseAgent` (`specialized_agents/base.py`) which implements the ReAct loop, idempotency (Redis → in-memory fallback), and tool context injection (HIPAA-safe PII passing via `inspect.signature`).
 
 **LLM Stack**:
-- **Router / Aggregator / Extractor / Agent-Planner** → `gemma3:1b` via homeserver Ollama (`http://homeserver:11434/v1`). A warmup call fires at `lifespan()` startup to pre-load the model and avoid cold-start hangs. Set `OLLAMA_FLASH_ATTENTION=0` on the Ollama host to prevent Flash Attention hangs on long prompts.
-- **Agents (synthesis)** → MedGemma (`localhost:8000`, fallback `gemma3:1b` via homeserver Ollama).
+- **Router / Aggregator / Extractor / Agent-Planner** → `gemma4:31b-cloud` via homeserver Ollama (`http://homeserver:11434/v1`). A warmup call fires at `lifespan()` startup to pre-load the model and avoid cold-start hangs. Set `OLLAMA_FLASH_ATTENTION=0` on the Ollama host to prevent Flash Attention hangs on long prompts.
+- **Agents (synthesis)** → MedGemma (`localhost:8000`, fallback `gemma4:31b-cloud` via homeserver Ollama).
 - **Judge** → Groq `llama-3.3-70b-versatile` (evaluation only, not used for generation).
 
 Web crawlers use **DuckDuckGo** (not Google — bot-detected). Tool results cached via `@redis_cache` (24h TTL).

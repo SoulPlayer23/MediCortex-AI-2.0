@@ -27,7 +27,7 @@ def _llm_invoke_audit(llm_obj, messages, *, agent: str, role: str) -> any:
     return result
 
 # MedGemma — used exclusively for clinical synthesis (Phase 2).
-# Tool orchestration is handled by Gemma3:1b (Phase 1).
+# Tool orchestration is handled by gemma4:31b-cloud (Phase 1).
 llm = MedGemmaLLM()
 
 
@@ -35,11 +35,10 @@ class A2ABaseAgent:
     """
     Base Agent implementing the A2A Protocol with a two-phase execution model:
 
-      Phase 1 — FunctionGemma 270M (planner):
-        Decides which tools to call and in what order. Uses bind_tools() —
-        FunctionGemma is fine-tuned exclusively for function calling (gemma3:1b
-        does not support the Ollama tool-calling API). Emits tool thoughts in
-        real-time for SSE streaming.
+      Phase 1 — Tool-calling planner (gemma4:31b-cloud):
+        Decides which tools to call and in what order. Uses bind_tools() and
+        the Ollama tool-calling API. Emits tool thoughts in real-time for SSE
+        streaming.
 
       Phase 2 — MedGemma (synthesizer):
         Receives the original query + all gathered tool results.
@@ -137,7 +136,7 @@ class A2ABaseAgent:
 
             # tool_context carries sensitive data that must never appear in any
             # LLM prompt. _call_tool() injects matching keys at call time via
-            # inspect.signature, keeping PII out of both Gemma3:1b and MedGemma.
+            # inspect.signature, keeping PII out of both gemma4:31b-cloud and MedGemma.
             tool_context: Dict[str, Any] = {}
             if pii_json := envelope.payload.get("pii_mapping_json"):
                 tool_context["pii_mapping_json"] = pii_json
@@ -202,7 +201,7 @@ class A2ABaseAgent:
     ) -> Tuple[str, List[str], List[dict], bool, Optional[str]]:
         """
         Two-phase pipeline:
-          Phase 1 — Gemma3:1b gathers tool data (emits thoughts in real-time).
+          Phase 1 — gemma4:31b-cloud gathers tool data (emits thoughts in real-time).
           Phase 2 — MedGemma synthesizes the final clinical response (single call).
 
         Returns (final_answer, thinking_steps, sources, low_context, refined_query).
@@ -296,14 +295,14 @@ class A2ABaseAgent:
         tool_context: Dict[str, Any],
     ) -> Tuple[List[Tuple[str, str]], List[dict], bool, Optional[str]]:
         """
-        Phase 1: Gemma3:1b decides which tools to call and in what order.
+        Phase 1: gemma4:31b-cloud decides which tools to call and in what order.
 
         Uses LangChain bind_tools() so tool schemas are generated automatically.
         Loops up to self.max_iterations times to allow multi-tool pipelines
         (e.g. patient agent: retrieve → history → vitals → medications).
 
         tool_context keys (pii_mapping_json, knowledge_context) are injected
-        at call time by _call_tool() and are never visible to Gemma3:1b.
+        at call time by _call_tool() and are never visible to gemma4:31b-cloud.
 
         Returns (tool_results, sources, low_context, refined_query) where:
         - low_context is True when tool observations are empty or thin (<200 chars total)
@@ -311,13 +310,11 @@ class A2ABaseAgent:
         - refined_query is a more specific KB search term suggested by the planner,
           or None if context was sufficient.
         """
-        # OPS-4 / BUG-9: build planner + bind_tools once per agent instance.
-        # FunctionGemma (270M) is used exclusively here — it is fine-tuned for
-        # function calling and supports the Ollama tool API. gemma3:1b does not.
+        # OPS-4: build planner + bind_tools once per agent instance.
         if self._planner_with_tools_cached is None:
             self._planner_cached = ChatOllama(
-                model=getattr(settings, "OLLAMA_TOOL_MODEL", "functiongemma"),
-                temperature=0.0,  # FunctionGemma performs best deterministically
+                model=getattr(settings, "OLLAMA_TOOL_MODEL", "gemma4:31b-cloud"),
+                temperature=0.0,
                 base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
                 timeout=getattr(settings, "OLLAMA_TIMEOUT_SECONDS", 60),
             )
@@ -356,7 +353,7 @@ class A2ABaseAgent:
             messages.append(response)
 
             if not response.tool_calls:
-                # Gemma3:1b decided no more tools needed
+                # gemma4:31b-cloud decided no more tools needed
                 break
 
             for tc in response.tool_calls:
@@ -418,7 +415,7 @@ class A2ABaseAgent:
         """
         Execute a tool, transparently injecting tool_context keys that match
         the tool's function signature (e.g. pii_mapping_json for patient tools).
-        Neither Gemma3:1b nor MedGemma ever sees these injected values.
+        Neither gemma4:31b-cloud nor MedGemma ever sees these injected values.
         """
         tool = self.tools.get(tool_name)
         if not tool:
@@ -453,7 +450,7 @@ class A2ABaseAgent:
 
         After synthesis, a repetition guard checks whether any sentence appears
         more than 3 times. If so, MedGemma has entered a loop — the output is
-        discarded and Gemma3:1b synthesizes instead.
+        discarded and gemma4:31b-cloud synthesizes instead.
         """
         if tool_results:
             gathered = "\n\n".join(
@@ -479,10 +476,10 @@ class A2ABaseAgent:
 
         # Repetition guard: MedGemma sometimes loops a single sentence when it
         # receives a prompt it cannot ground (e.g. empty KB context). Detect and
-        # fall back to Gemma3:1b rather than returning garbage to the user.
+        # fall back to gemma4:31b-cloud rather than returning garbage to the user.
         if self._is_looping(output):
             logger.warning(
-                f"[{self.name}] MedGemma loop detected — falling back to Gemma3:1b"
+                f"[{self.name}] MedGemma loop detected — falling back to gemma4:31b-cloud"
             )
             try:
                 from langchain_core.messages import HumanMessage as _HumanMessage
@@ -498,7 +495,7 @@ class A2ABaseAgent:
                 fb_rtt_ms = round((_time.monotonic() - t0_fb) * 1000)
                 logger.info("llm_call", model=settings.OLLAMA_CLOUD_MODEL, agent=self.name, role="synthesis_fallback", rtt_ms=fb_rtt_ms, chars=len(output))
             except Exception as e:
-                logger.error(f"[{self.name}] Gemma3:1b fallback also failed: {e}")
+                logger.error(f"[{self.name}] gemma4:31b-cloud fallback also failed: {e}")
         else:
             logger.info("llm_call", model="medgemma", agent=self.name, role="synthesis", rtt_ms=synth_rtt_ms, chars=len(output))
         return output

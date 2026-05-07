@@ -33,10 +33,9 @@ class Settings(BaseSettings):
 
     # Ollama (Router / Aggregator / Extractor / Fallback synthesizer)
     OLLAMA_CLOUD_URL: str = "http://homeserver:11434"
-    OLLAMA_CLOUD_MODEL: str = "gemma3:1b"
-    # Dedicated tool-calling model (BUG-9): FunctionGemma 270M is fine-tuned
-    # exclusively for function calling and supports bind_tools(); gemma3:1b does not.
-    OLLAMA_TOOL_MODEL: str = "functiongemma"
+    OLLAMA_CLOUD_MODEL: str = "gemma4:31b-cloud"
+    # Dedicated tool-calling model: gemma4:31b-cloud supports bind_tools().
+    OLLAMA_TOOL_MODEL: str = "gemma4:31b-cloud"
     OLLAMA_TIMEOUT_SECONDS: int = 60  # OPS-4
 
     # MinIO
