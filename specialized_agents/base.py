@@ -480,7 +480,8 @@ class A2ABaseAgent:
         # fall back to gemma4:31b-cloud rather than returning garbage to the user.
         if self._is_looping(output):
             logger.warning(
-                f"[{self.name}] MedGemma loop detected — falling back to gemma4:31b-cloud"
+                f"[{self.name}] MedGemma loop detected — falling back to gemma4:31b-cloud",
+                looping_output=output[:500],
             )
             try:
                 from langchain_core.messages import HumanMessage as _HumanMessage
