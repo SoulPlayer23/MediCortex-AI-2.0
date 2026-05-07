@@ -1089,7 +1089,11 @@ def node_reviewer(state: AgentState):
 
     original_query = state.get("redacted_input", "")
     history = state.get("history", [])
-    history_str = "\n".join(history[-6:]) if history else ""  # last 3 turns (user+assistant each)
+    # Truncate each history entry to 300 chars so a long prior assistant response
+    # (e.g. a 2000-word SGLT2 essay) doesn't drown out the current query in Groq's context.
+    truncated_history = [h[:300] + ("…" if len(h) > 300 else "") for h in history[-6:]]
+    history_str = "\n".join(truncated_history) if truncated_history else ""
+    logger.info("reviewer_query_check", original_query=original_query, history_turns=len(history))
 
     conversation_block = (
         f"Conversation History (last turns):\n{history_str}\n\n" if history_str else ""
