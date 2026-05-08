@@ -182,6 +182,12 @@ def run_ragas_scoring(rows: list[dict], output_path: Path) -> list[dict]:
     ]
     valid_ids = [r["item_id"] for r in rows if r["answer"]]
 
+    if not ragas_rows:
+        raise SystemExit(
+            "ERROR: No rows with answers to score. "
+            "All queries failed — is the orchestrator running on port 8001?"
+        )
+
     dataset = Dataset.from_list(ragas_rows)
     scores = evaluate(dataset, metrics=metrics)
     scores_df = scores.to_pandas()
