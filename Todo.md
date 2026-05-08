@@ -310,7 +310,7 @@ pytest tests/unit/ tests/integration/ -v --tb=short -m "not stress"
 
 **Scripts (all created ✅ — need `eval_test_set.json` and a running backend to execute):**
 
-- **`tests/evaluation/run_ragas.py`** ✅ — sends each test set query to live `/chat/stream`, collects response + `message_metadata.retrieval.refined_context`, feeds `{query, answer, context, ground_truth}` into RAGAS with Llama-3.3-70B evaluator. Writes `results/ragas_scores.json`.
+- **`tests/evaluation/run_ragas.py`** ✅ — sends each test set query to live `/chat/stream`, collects response + `message_metadata.retrieval.refined_context`, feeds `{query, answer, context, ground_truth}` into RAGAS with Llama-3.3-70B evaluator. Writes `results/ragas_scores.json`. **Fix (2026-05-08):** removed `AnswerRelevancy` — wrong metric for agentic RAG (requires embeddings, designed for document chunk retrieval; system uses graph-based ArangoDB traversal). Now evaluates only `Faithfulness` + `ContextPrecision` (both pure LLM-based).
 
 - **`tests/evaluation/run_judge_calibration.py`** ✅ — reads `tests/resources/human_ratings.csv` (30 queries rated by two human experts on 1–5 scale: Clinical Accuracy, Completeness, Safety, Clarity), reads judge scores from `message_metadata`, computes ICC via `pingouin.intraclass_corr()` and weighted Cohen's kappa via `sklearn.metrics.cohen_kappa_score()`.
 
@@ -353,7 +353,7 @@ if os.getenv("EVAL_FORCE_NOAGENT"):
 | Metric | Target |
 |---|---|
 | RAGAS Faithfulness (overall) | ≥ 0.75 |
-| RAGAS Answer Relevance (overall) | ≥ 0.80 |
+| RAGAS Context Precision (overall) | ≥ 0.75 |
 | ICC (Judge vs. Human Rater) | ≥ 0.75 (excellent) |
 | Weighted Cohen's kappa | ≥ 0.60 (substantial) |
 | Accuracy vs. non-agentic baseline | ≥ +10% improvement |
