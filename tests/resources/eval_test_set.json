@@ -1,0 +1,406 @@
+[
+  {
+    "id": "PUBMED-01",
+    "domain": "pubmed",
+    "query": "What are the latest RCT findings on SGLT2 inhibitors for heart failure with reduced ejection fraction?",
+    "expected_agents": ["pubmed"],
+    "ground_truth_answer": "SGLT2 inhibitors dapagliflozin and empagliflozin have both demonstrated significant reductions in the composite of worsening heart failure events or cardiovascular death in patients with HFrEF, regardless of diabetes status. DAPA-HF (NEJM 2019) showed dapagliflozin reduced the primary composite endpoint by 26% (HR 0.74, 95% CI 0.65-0.85). EMPEROR-Reduced (NEJM 2020) showed empagliflozin reduced hospitalisation for heart failure by 30% (HR 0.70, 95% CI 0.58-0.85). Both are now recommended in major guidelines (ESC 2021, ACC/AHA 2022) as standard of care for HFrEF independent of diabetes status.",
+    "ground_truth_source": "NEJM 2019;381:1995-2008 (DAPA-HF); NEJM 2020;383:1413-1424 (EMPEROR-Reduced)"
+  },
+  {
+    "id": "PUBMED-02",
+    "domain": "pubmed",
+    "query": "What does the evidence say about thrombectomy for acute ischaemic stroke beyond 6 hours of onset?",
+    "expected_agents": ["pubmed"],
+    "ground_truth_answer": "DAWN (NEJM 2018) and DEFUSE 3 (NEJM 2018) demonstrated benefit of mechanical thrombectomy up to 24 hours in carefully selected patients with large vessel occlusion, small core infarct, and large penumbra on perfusion imaging. DAWN used clinical-imaging mismatch criteria (NIHSS ≥10, DWI infarct <31mL for age <80); DEFUSE 3 used perfusion-diffusion mismatch (ischaemic core <70mL, mismatch ratio ≥1.8). Both showed significant improvement in functional independence at 90 days. Current AHA/ASA guidelines (2019 update) support thrombectomy up to 24 hours in appropriately selected patients using DAWN or DEFUSE 3 criteria.",
+    "ground_truth_source": "NEJM 2018;378:11-21 (DAWN); NEJM 2018;378:708-718 (DEFUSE 3)"
+  },
+  {
+    "id": "PUBMED-03",
+    "domain": "pubmed",
+    "query": "What is the evidence for PCSK9 inhibitors in reducing LDL and cardiovascular events?",
+    "expected_agents": ["pubmed"],
+    "ground_truth_answer": "FOURIER (NEJM 2017) and ODYSSEY OUTCOMES (Lancet 2018) demonstrated that PCSK9 inhibitors (evolocumab and alirocumab respectively) reduce LDL-C by ~60% on top of high-intensity statin therapy and significantly reduce major adverse cardiovascular events in patients with established atherosclerotic cardiovascular disease. FOURIER: evolocumab reduced the primary composite endpoint (MI, stroke, CV death, UA hospitalisation, revascularisation) by 15% (HR 0.85, p<0.001). ODYSSEY OUTCOMES: alirocumab reduced MACE by 15% (HR 0.85, p<0.0001) with greatest benefit in patients with baseline LDL ≥100mg/dL.",
+    "ground_truth_source": "NEJM 2017;376:1713-1722 (FOURIER); Lancet 2018;391:1648-1659 (ODYSSEY OUTCOMES)"
+  },
+  {
+    "id": "PUBMED-04",
+    "domain": "pubmed",
+    "query": "Retrieve clinical guidelines for septic shock resuscitation in the ICU.",
+    "expected_agents": ["pubmed"],
+    "ground_truth_answer": "The Surviving Sepsis Campaign (SSC) 2021 guidelines recommend: (1) IV crystalloid fluid resuscitation, initiating with 30mL/kg within 3 hours for sepsis-induced hypoperfusion; (2) norepinephrine as first-line vasopressor to maintain MAP ≥65 mmHg; (3) vasopressin 0.03 units/min as second agent when norepinephrine doses escalate; (4) hydrocortisone 200mg/day IV for septic shock refractory to adequate fluid and vasopressor therapy; (5) blood cultures before antibiotics; (6) broad-spectrum IV antibiotics within 1 hour of recognition; (7) lactate measurement to guide resuscitation (targeting normalisation).",
+    "ground_truth_source": "Surviving Sepsis Campaign Guidelines 2021, Critical Care Medicine 2021;49(3):e1-e74"
+  },
+  {
+    "id": "PUBMED-05",
+    "domain": "pubmed",
+    "query": "What are the published outcomes for TAVR versus SAVR in low-surgical-risk patients?",
+    "expected_agents": ["pubmed"],
+    "ground_truth_answer": "PARTNER 3 (NEJM 2019) and Evolut Low Risk Trial (NEJM 2019) both demonstrated non-inferiority (and in some cases superiority) of TAVR vs SAVR in low-surgical-risk patients with severe symptomatic aortic stenosis. PARTNER 3 (balloon-expandable TAVR): TAVR group had lower rate of death/stroke/rehospitalisation at 1 year (8.5% vs 15.1%, HR 0.54, p<0.001). Evolut Low Risk Trial (self-expanding TAVR): 24-month all-cause mortality or disabling stroke 5.3% TAVR vs 6.7% SAVR (within non-inferiority margin). Both trials established TAVR as a viable option in low-risk patients; long-term valve durability data beyond 5–10 years remains under study.",
+    "ground_truth_source": "NEJM 2019;380:1695-1705 (PARTNER 3); NEJM 2019;380:1706-1715 (Evolut Low Risk)"
+  },
+  {
+    "id": "PUBMED-06",
+    "domain": "pubmed",
+    "query": "What is the current evidence for dual antiplatelet therapy duration after drug-eluting stent implantation?",
+    "expected_agents": ["pubmed"],
+    "ground_truth_answer": "Current ACC/AHA guidelines (2022) recommend at least 6 months of DAPT (aspirin + P2Y12 inhibitor) after DES implantation for stable CAD. For ACS, 12 months is the standard. DAPT Study (NEJM 2014) found extending DAPT to 30 months reduced stent thrombosis and MACE but increased bleeding. PEGASUS-TIMI 54 (NEJM 2015) found ticagrelor 60mg added to aspirin beyond 1 year reduced MACE in prior MI patients but increased TIMI major bleeding. The balance of ischaemic vs. bleeding risk should guide duration; tools like DAPT Score, PRECISE-DAPT can assist decision-making.",
+    "ground_truth_source": "NEJM 2014;371:2155-2166 (DAPT Study); NEJM 2015;372:1791-1800 (PEGASUS); ACC/AHA 2022 Stable CAD Guidelines"
+  },
+  {
+    "id": "PUBMED-07",
+    "domain": "pubmed",
+    "query": "What does the literature say about proton pump inhibitors and dementia risk?",
+    "expected_agents": ["pubmed"],
+    "ground_truth_answer": "Observational data have suggested a possible association between long-term PPI use and increased dementia risk, but randomised evidence does not support a causal relationship. A German cohort study (JAMA Neurology 2016) reported HR 1.44 for dementia with regular PPI use. However, the ASPREE-PPI substudy and a large Mendelian randomisation analysis (BMJ 2021) found no causal association after controlling for confounders. Current consensus is that available evidence does not support restricting appropriate PPI use based on dementia concerns; the association likely reflects confounding by indication.",
+    "ground_truth_source": "JAMA Neurology 2016;73:410-416; BMJ 2021;374:n1886 (Mendelian randomisation)"
+  },
+  {
+    "id": "PUBMED-08",
+    "domain": "pubmed",
+    "query": "Summarise recent trials on CAR-T cell therapy for relapsed B-cell lymphoma.",
+    "expected_agents": ["pubmed"],
+    "ground_truth_answer": "CD19-directed CAR-T cell therapies (axicabtagene ciloleucel, tisagenlecleucel, lisocabtagene maraleucel) have transformed management of relapsed/refractory DLBCL. ZUMA-1 (axicab, Nature Medicine 2019): 83% ORR, 58% CR rate, 40% durable response at 2 years. JULIET (tisacel, NEJM 2019): 52% ORR, 40% CR. TRANSFORM and ZUMA-7 trials (NEJM 2022) established CAR-T superiority over standard salvage chemotherapy + ASCT as second-line therapy in primary refractory/early relapsed LBCL. Common toxicities: cytokine release syndrome (CRS, managed with tocilizumab) and immune effector cell-associated neurotoxicity syndrome (ICANS). All three agents FDA-approved; axicab and lisocab now approved as second-line therapy.",
+    "ground_truth_source": "Nature Medicine 2019;25:1117-1127; NEJM 2019;380:45-56; NEJM 2022;386:629-639 (ZUMA-7)"
+  },
+  {
+    "id": "PUBMED-09",
+    "domain": "pubmed",
+    "query": "What are recent meta-analyses on dapagliflozin in chronic kidney disease?",
+    "expected_agents": ["pubmed"],
+    "ground_truth_answer": "DAPA-CKD (NEJM 2020) demonstrated dapagliflozin 10mg significantly reduced the composite of ≥50% eGFR decline, ESRD, or renal/CV death in patients with CKD (eGFR 25–75, UACR ≥200 mg/g) irrespective of diabetes status (HR 0.61, 95% CI 0.51-0.72, NNT=19 over 2.4 years). This led to FDA approval for CKD in 2021. Subsequent meta-analyses (Lancet Diabetes & Endocrinology 2022) pooling CREDENCE, DAPA-CKD, EMPA-KIDNEY, and other SGLT2i CKD trials confirmed class-wide benefit: ~37% reduction in kidney disease progression and 14% reduction in CV death across the class regardless of diabetes.",
+    "ground_truth_source": "NEJM 2020;383:1436-1446 (DAPA-CKD); Lancet Diabetes Endocrinol 2022;10:649-663"
+  },
+  {
+    "id": "PUBMED-10",
+    "domain": "pubmed",
+    "query": "What is the evidence base for low-dose aspirin in primary prevention of cardiovascular disease?",
+    "expected_agents": ["pubmed"],
+    "ground_truth_answer": "Three landmark RCTs published in 2018 (ASPREE, ARRIVE, ASCEND) substantially changed primary prevention recommendations. ASPREE (NEJM 2018): aspirin 100mg in healthy elderly (≥70 years) did not reduce MACE but significantly increased major haemorrhage and all-cause mortality. ARRIVE (Lancet 2018): aspirin 100mg in moderate-CV-risk patients showed no MACE benefit with increased GI bleeding. ASCEND (NEJM 2018): aspirin reduced MACE in diabetic patients without established CVD but comparable increase in major bleeding. Current ACC/AHA and USPSTF guidelines no longer recommend aspirin for primary prevention in adults ≥60 years; in adults 40–59 with ≥10% 10-year CV risk, shared decision-making is recommended based on individual bleeding risk.",
+    "ground_truth_source": "NEJM 2018;379:1509-1518 (ASPREE); Lancet 2018;392:1036-1046 (ARRIVE); NEJM 2018;379:1529-1539 (ASCEND)"
+  },
+
+  {
+    "id": "DIAG-01",
+    "domain": "diagnosis",
+    "query": "A 55-year-old male presents with crushing chest pain radiating to the left arm, diaphoresis, and nausea for 30 minutes. What are the top differential diagnoses?",
+    "expected_agents": ["diagnosis"],
+    "ground_truth_answer": "Top differentials in order of urgency: (1) ST-elevation myocardial infarction (STEMI) — must be excluded first with 12-lead ECG; (2) Non-ST-elevation acute coronary syndrome (NSTEMI/UA); (3) Aortic dissection — especially if pain is tearing, ripping, or radiates to the back, or if there is BP differential between arms; (4) Pulmonary embolism — though less typical with this presentation; (5) Acute pericarditis/myocarditis; (6) Oesophageal rupture (Boerhaave syndrome) — rare but catastrophic. Immediate investigations: 12-lead ECG within 10 minutes, high-sensitivity troponin at 0 and 1–3 hours, chest X-ray. Activate cath lab if STEMI confirmed.",
+    "ground_truth_source": "ESC Guidelines on ACS 2023; AHA STEMI Guidelines 2022"
+  },
+  {
+    "id": "DIAG-02",
+    "domain": "diagnosis",
+    "query": "What scoring system is used to assess severity in community-acquired pneumonia, and what does each score indicate?",
+    "expected_agents": ["diagnosis"],
+    "ground_truth_answer": "The CURB-65 score (British Thoracic Society) is widely used for CAP severity. One point each for: Confusion (new onset), Urea >7 mmol/L, Respiratory rate ≥30/min, Blood pressure (systolic <90 or diastolic ≤60 mmHg), age ≥65 years. Score 0–1: low severity, consider home treatment; Score 2: moderate severity, consider hospital admission; Score ≥3: severe CAP, consider ICU assessment. The PSI/PORT score offers more granular risk stratification but is more complex. CURB-65 ≥3 has ~17–22% 30-day mortality. Addition of oxygen saturation (CURB-65 + SpO2 <92%) enhances triage. Note: CURB-65 does not replace clinical judgement — comorbidities, social factors, and treatment response also guide disposition.",
+    "ground_truth_source": "Thorax 2003;58:377-382 (BTS CURB-65 validation); Surviving Sepsis Campaign 2021"
+  },
+  {
+    "id": "DIAG-03",
+    "domain": "diagnosis",
+    "query": "A 28-year-old woman presents with 3 months of fatigue, weight gain, cold intolerance, constipation, and dry skin. What is the most likely diagnosis and how is it confirmed?",
+    "expected_agents": ["diagnosis"],
+    "ground_truth_answer": "Primary hypothyroidism is the most likely diagnosis. Classic symptoms are present: fatigue, weight gain, cold intolerance, constipation, dry skin, bradycardia (if present), and menstrual irregularities. Confirmation: serum TSH is the first-line test — elevated TSH (typically >4.5 mIU/L) confirms primary hypothyroidism. Free T4 should then be measured; low fT4 confirms overt hypothyroidism. Anti-TPO antibodies (positive in ~95% of cases) indicate autoimmune aetiology (Hashimoto's thyroiditis), the most common cause in iodine-sufficient countries. Treatment: levothyroxine, dosed by weight (~1.6 mcg/kg/day), titrated to TSH within normal range. TSH monitoring 6 weeks after dose change.",
+    "ground_truth_source": "ATA Guidelines on Hypothyroidism 2014; NEJM 2017;376:2543-2556"
+  },
+  {
+    "id": "DIAG-04",
+    "domain": "diagnosis",
+    "query": "What are the ROME IV criteria for irritable bowel syndrome?",
+    "expected_agents": ["diagnosis"],
+    "ground_truth_answer": "ROME IV criteria (2016): Recurrent abdominal pain, on average at least 1 day per week in the last 3 months, associated with 2 or more of the following: (1) related to defecation; (2) associated with a change in frequency of stool; (3) associated with a change in form (appearance) of stool. Criteria fulfilled for the last 3 months with symptom onset at least 6 months prior to diagnosis. Subtypes based on Bristol stool form: IBS-C (constipation predominant), IBS-D (diarrhoea predominant), IBS-M (mixed), IBS-U (unclassified). Key: IBS is a diagnosis of exclusion — red flag symptoms (rectal bleeding, unintentional weight loss, nocturnal symptoms, family history of colorectal cancer, age >50 at new onset) warrant investigation before applying ROME IV.",
+    "ground_truth_source": "Gastroenterology 2016;150:1393-1407 (ROME IV); Gut 2021;70:1630-1648"
+  },
+  {
+    "id": "DIAG-05",
+    "domain": "diagnosis",
+    "query": "How do you differentiate Type 1 from Type 2 diabetes mellitus at initial presentation?",
+    "expected_agents": ["diagnosis"],
+    "ground_truth_answer": "Key differentiating features: Type 1 (T1DM): typically younger onset (<30 years but can occur at any age), normal or low BMI, abrupt onset (days to weeks), presence of diabetic ketoacidosis at presentation common, positive islet autoantibodies (anti-GAD65 in ~75%, anti-IA2, ZnT8), low/undetectable C-peptide. Type 2 (T2DM): typically middle-aged/older, overweight/obese, insidious onset, strong family history, associated metabolic syndrome (HTN, dyslipidaemia), negative autoantibodies, normal/elevated C-peptide at diagnosis. Overlap: LADA (latent autoimmune diabetes in adults) mimics T2DM clinically but has positive GAD65 antibodies and progressive insulin dependence. Initial management diverges significantly: T1DM requires insulin; T2DM starts with lifestyle + metformin. C-peptide + anti-GAD antibodies are the most clinically useful tests when the diagnosis is uncertain.",
+    "ground_truth_source": "ADA Standards of Care in Diabetes 2024; Diabetes Care 2024;47(Suppl 1):S20-S42"
+  },
+  {
+    "id": "DIAG-06",
+    "domain": "diagnosis",
+    "query": "A 2-year-old presents with sudden onset stridor, drooling, and high fever. What are the critical diagnoses to consider?",
+    "expected_agents": ["diagnosis"],
+    "ground_truth_answer": "Immediate life-threatening differentials: (1) Epiglottitis — classic triad of stridor, drooling, and fever; child appears toxic, sits in 'tripod position'; do NOT attempt throat examination or lay flat until airway secured; blood culture + IV antibiotics (ceftriaxone); urgent ENT/anaesthesia for airway management. (2) Croup (laryngotracheobronchitis) — barking cough, seal-like stridor, low-grade fever, typically preceded by URI; steeple sign on AP neck X-ray; managed with dexamethasone + nebulised adrenaline in moderate-severe cases. (3) Foreign body aspiration — sudden onset, afebrile, history of choking; unilateral wheeze/decreased breath sounds; rigid bronchoscopy required. (4) Bacterial tracheitis — high fever, purulent secretions, toxic appearance, pseudomembrane on airway. Key: stabilise airway first before any investigations in suspected epiglottitis.",
+    "ground_truth_source": "Pediatric Emergency Medicine 2023; NICE Guideline CG102 (Bacterial Meningitis); Paediatric Advanced Life Support (PALS) 2020"
+  },
+  {
+    "id": "DIAG-07",
+    "domain": "diagnosis",
+    "query": "A patient with longstanding Type 2 diabetes develops proteinuria of 1.2g/day and eGFR of 48. What are the differentials for the renal disease?",
+    "expected_agents": ["diagnosis"],
+    "ground_truth_answer": "Differential diagnosis for CKD in a T2DM patient: (1) Diabetic nephropathy (most likely) — occurs in 30-40% of T2DM patients, typically with diabetic retinopathy co-occurring (its absence should raise suspicion for alternative diagnosis), gradual progression, microalbuminuria preceding proteinuria by years. (2) Hypertensive nephrosclerosis — common comorbidity in T2DM; bland urine sediment, minimal proteinuria relative to eGFR decline. (3) IgA nephropathy — haematuria on urine dipstick is a clue. (4) Focal segmental glomerulosclerosis (FSGS). (5) Membranous nephropathy — nephrotic range proteinuria, positive anti-PLA2R antibody. Factors favouring non-diabetic CKD: absence of retinopathy, rapid eGFR decline, haematuria, proteinuria onset before 5 years of T2DM. Renal biopsy should be considered when non-diabetic CKD is suspected.",
+    "ground_truth_source": "KDIGO CKD Guidelines 2022; NEJM 2022;386:2682-2694"
+  },
+  {
+    "id": "DIAG-08",
+    "domain": "diagnosis",
+    "query": "Evaluate this presentation: right upper quadrant pain, jaundice, and fever in a 45-year-old woman. What is the most likely diagnosis?",
+    "expected_agents": ["diagnosis"],
+    "ground_truth_answer": "Charcot's triad (RUQ pain, fever, jaundice) is pathognomonic for ascending cholangitis, a biliary emergency. Most common cause: choledocholithiasis (gallstone in the common bile duct). Additional Reynolds' pentad (Charcot's triad + hypotension + altered mental status) indicates severe/suppurative cholangitis requiring urgent biliary decompression. Immediate management: IV fluids, blood cultures, IV antibiotics (piperacillin-tazobactam or cefuroxime + metronidazole), nil by mouth, urgent ERCP for biliary decompression within 24–48 hours (within 12 hours if severe). Differentials to exclude: acute cholecystitis (Murphy's sign, no jaundice unless Mirizzi syndrome), acute hepatitis (markedly elevated transaminases), liver abscess. Investigations: LFTs (elevated ALP, bilirubin, GGT), FBC (leucocytosis), blood cultures, abdominal ultrasound (biliary dilation, gallstones), MRCP if ultrasound equivocal.",
+    "ground_truth_source": "Tokyo Guidelines 2018 (TG18) for Acute Cholangitis; NICE CG188"
+  },
+  {
+    "id": "DIAG-09",
+    "domain": "diagnosis",
+    "query": "A 35-year-old with fatigue, pallor, and splenomegaly has haemoglobin of 8g/dL with MCV 72. What are the differentials?",
+    "expected_agents": ["diagnosis"],
+    "ground_truth_answer": "Microcytic anaemia (MCV <80) with splenomegaly: differential prioritised by likelihood: (1) Thalassaemia (most likely with splenomegaly in young patient) — alpha or beta thalassaemia trait or intermedia; Hb electrophoresis shows elevated HbA2 (>3.5%) in beta thal; target cells and basophilic stippling on blood film. (2) Iron deficiency anaemia — commonest cause of microcytic anaemia overall; splenomegaly less typical; low ferritin (<30 ng/mL), low serum iron, high TIBC. (3) Haemoglobin E disease — common in South/Southeast Asian populations; mild anaemia, microcytosis, splenomegaly. (4) Sideroblastic anaemia — ring sideroblasts on bone marrow biopsy; high serum iron, elevated ferritin. (5) Anaemia of chronic disease — usually normocytic/mild microcytic; high ferritin, low TIBC, low serum iron. Key investigations: peripheral blood film, serum ferritin, iron studies, Hb electrophoresis, reticulocyte count.",
+    "ground_truth_source": "ASH Guidelines on Iron Deficiency 2020; Williams Haematology 10th ed. 2021"
+  },
+  {
+    "id": "DIAG-10",
+    "domain": "diagnosis",
+    "query": "What are the diagnostic criteria for metabolic syndrome?",
+    "expected_agents": ["diagnosis"],
+    "ground_truth_answer": "ATP III (NCEP) / AHA-NHLBI criteria (3 of 5 required): (1) Waist circumference >102cm (men) or >88cm (women) [ethnicity-specific thresholds apply for Asian populations: >90cm men, >80cm women]; (2) Serum triglycerides ≥150 mg/dL (1.7 mmol/L) or on drug treatment for hypertriglyceridaemia; (3) HDL-C <40 mg/dL men or <50 mg/dL women, or on drug treatment; (4) Blood pressure ≥130/85 mmHg or on antihypertensive drug treatment; (5) Fasting plasma glucose ≥100 mg/dL (5.6 mmol/L) or on drug treatment for hyperglycaemia. IDF 2006 criteria require central obesity as mandatory criterion. Metabolic syndrome confers ~2× risk of ASCVD and 5× risk of T2DM. Treatment: lifestyle modification first; individual risk factors treated per respective guidelines.",
+    "ground_truth_source": "Circulation 2009;120:1640-1645 (AHA/NHLBI harmonised definition); IDF 2006 consensus"
+  },
+
+  {
+    "id": "PHARM-01",
+    "domain": "pharmacology",
+    "query": "What is the mechanism of action of metformin and why is it first-line for Type 2 diabetes?",
+    "expected_agents": ["pharmacology"],
+    "ground_truth_answer": "Metformin is a biguanide that primarily reduces hepatic glucose production by activating AMP-activated protein kinase (AMPK), which inhibits gluconeogenesis and glycogenolysis. Secondary mechanisms: enhanced peripheral insulin sensitivity, reduced intestinal glucose absorption, possible gut microbiome modulation. It does not stimulate insulin secretion and therefore does not cause hypoglycaemia as monotherapy. First-line rationale: (1) Extensive 50+ year safety record; (2) UKPDS showed cardiovascular mortality benefit in obese T2DM independent of glycaemic control; (3) Weight neutral or mild weight loss; (4) Low cost (generic); (5) Low hypoglycaemia risk. Contraindications: eGFR <30 mL/min/1.73m² (use with caution eGFR 30–45); iodinated contrast media — hold 48 hours; severe hepatic impairment; active alcohol misuse. Side effects: GI (nausea, diarrhoea — take with food, use extended-release formulation); rare lactic acidosis in contraindicated patients.",
+    "ground_truth_source": "ADA Standards of Care 2024; UKPDS 34, Lancet 1998;352:854-865"
+  },
+  {
+    "id": "PHARM-02",
+    "domain": "pharmacology",
+    "query": "What are the major drug interactions between warfarin and commonly co-prescribed medications?",
+    "expected_agents": ["pharmacology"],
+    "ground_truth_answer": "Warfarin has narrow therapeutic index with numerous clinically significant interactions. Major INR-increasing interactions (increased bleeding risk): NSAIDs (displace protein binding, GI bleeding risk), aspirin (antiplatelet + displacement), fluconazole/azole antifungals (CYP2C9 inhibition), amiodarone (CYP2C9 + CYP3A4 inhibition), ciprofloxacin/metronidazole (gut flora reduction → less vitamin K), cranberry juice (CYP2C9). Major INR-decreasing interactions (thrombosis risk): rifampicin (CYP induction), carbamazephan/phenytoin (CYP induction), St John's Wort. Vitamin K dietary inconsistency (green leafy vegetables) also affects stability. Management: close INR monitoring when initiating/stopping interacting drugs; consider switching to DOACs where appropriate (fewer interactions, predictable pharmacokinetics).",
+    "ground_truth_source": "BNF 2024; Clinical Pharmacology & Therapeutics 2023; Chest 2012 (ACCP guidelines Suppl)"
+  },
+  {
+    "id": "PHARM-03",
+    "domain": "pharmacology",
+    "query": "What are the contraindications and dose adjustments needed for lisinopril in renal impairment?",
+    "expected_agents": ["pharmacology"],
+    "ground_truth_answer": "Lisinopril is an ACE inhibitor. Renal considerations: Contraindications: bilateral renal artery stenosis, unilateral stenosis in a solitary kidney (risk of acute kidney injury), history of ACE inhibitor-induced angioedema, pregnancy (all trimesters — teratogenic). Dose adjustments by eGFR: eGFR >30: standard dosing (2.5–10mg/day for heart failure; 5–40mg/day for hypertension); eGFR 10–30: start at 2.5–5mg/day, titrate cautiously, monitor potassium and creatinine closely; eGFR <10 or dialysis: not recommended (reduced renal clearance, unpredictable levels). Monitoring: check eGFR and K+ at 1–2 weeks after initiation and dose changes. A rise in serum creatinine up to 30% from baseline is acceptable and expected (intrarenal haemodynamic effect); >30% rise warrants stopping or dose reduction. Hyperkalaemia risk heightened with co-prescription of spironolactone, NSAIDs, or potassium supplements.",
+    "ground_truth_source": "KDIGO AKI Guidelines 2012; BNF 2024; ACC/AHA HF Guidelines 2022"
+  },
+  {
+    "id": "PHARM-04",
+    "domain": "pharmacology",
+    "query": "What are the side effects and monitoring requirements for atorvastatin?",
+    "expected_agents": ["pharmacology"],
+    "ground_truth_answer": "Atorvastatin (HMG-CoA reductase inhibitor) side effects: Common: myalgia (5–10% of patients), elevated liver enzymes, GI symptoms (nausea, diarrhoea), headache. Serious: Myopathy/rhabdomyolysis — risk increases with high doses, co-prescription of fibrates (especially gemfibrozil), ciclosporin, macrolide antibiotics, azole antifungals, niacin; presenting as severe muscle pain, weakness, elevated CK, myoglobinuria; rare (<1:10,000). Statin-associated autoimmune myopathy (SAIM): anti-HMGCR antibodies; rare but persistent after statin discontinuation. New-onset diabetes (modest increased risk ~10%). Monitoring: Baseline LFTs before starting; recheck at 12 weeks, then annually if stable. CK only if symptomatic (routine CK monitoring not recommended by most guidelines). Discontinue if CK >5× ULN or unexplained severe myalgia. Transaminase elevation >3× ULN is rare (<1%) at standard doses — hold if persistent.",
+    "ground_truth_source": "ACC/AHA Cholesterol Guidelines 2019; NICE CG181; BNF 2024"
+  },
+  {
+    "id": "PHARM-05",
+    "domain": "pharmacology",
+    "query": "How does insulin glargine differ from regular insulin in terms of pharmacokinetics and clinical use?",
+    "expected_agents": ["pharmacology"],
+    "ground_truth_answer": "Regular insulin (soluble insulin): Onset 30–60 min, peak 2–4 hours, duration 4–8 hours. Must be given 30 minutes before meals. Can be given IV in DKA. Insulin glargine (Lantus, Basaglar): Long-acting basal insulin. Onset 1–2 hours, no significant peak, duration ~24 hours (glargine U-300 up to 36 hours). Mechanism of prolonged action: forms a microprecipitate at subcutaneous injection site (due to shift from acidic pH in vial to physiologic pH in tissue), slow gradual absorption. Once daily subcutaneous injection (same time each day); cannot be given IV; cannot be mixed with other insulins. Clinical use: provides background basal insulin coverage (fasting + overnight); combined with rapid-acting insulin at meals (basal-bolus regimen) or used alone in T2DM with oral agents. Glargine U-300 (Toujeo): same molecule, more concentrated, slightly longer duration, less injection site variability. Do not substitute units across formulations without prescriber guidance.",
+    "ground_truth_source": "ADA Standards of Care 2024; Diabetes Care 2019;42(Suppl 1)"
+  },
+  {
+    "id": "PHARM-06",
+    "domain": "pharmacology",
+    "query": "What is the half-life of amiodarone and what monitoring is required for long-term use?",
+    "expected_agents": ["pharmacology"],
+    "ground_truth_answer": "Amiodarone half-life: extremely long, ranging from 40–55 days (range 26–107 days). This means: (1) onset of action is delayed (days to weeks for oral loading); (2) drug effect persists weeks to months after discontinuation; (3) drug interactions persist long after stopping. Toxicity monitoring (annual minimum for stable patients): Thyroid (TSH, fT4, fT3) — amiodarone contains 37% iodine by weight; causes hypothyroidism (~6%) and hyperthyroidism (~3%); monitor every 6 months. Pulmonary (CXR annually, PFTs if symptomatic) — amiodarone pulmonary toxicity (ARDS-like, insidious; mortality 10–20% if untreated). Hepatic (LFTs every 6 months) — hepatotoxicity, cirrhosis. Ophthalmology (annual slit-lamp exam) — corneal microdeposits (almost universal, usually asymptomatic) and optic neuropathy (rare, sight-threatening). Skin — photosensitivity (sunscreen mandatory); slate-grey discolouration with prolonged use. Neurological — peripheral neuropathy, tremor, ataxia.",
+    "ground_truth_source": "ESC Guidelines on Ventricular Arrhythmias 2022; BNF 2024; JACC 2020;75:3143-3172"
+  },
+  {
+    "id": "PHARM-07",
+    "domain": "pharmacology",
+    "query": "What are the indications and dosing for heparin bridging therapy?",
+    "expected_agents": ["pharmacology"],
+    "ground_truth_answer": "Heparin bridging (perioperative anticoagulation): Indications — patients on warfarin with HIGH thromboembolic risk who require interruption for surgery/procedure: mechanical mitral valve, mechanical aortic valve + additional risk factors (AF, prior stroke, low EF), AF with prior stroke/TIA, VTE within 3 months. Bridging NOT recommended for: low-to-moderate risk AF (CHADS2 ≤4), bioprosthetic valves, VTE >3 months ago — BRIDGE trial (NEJM 2015) showed no increase in thromboembolism with no bridging in AF, with significant reduction in bleeding. Protocol: Stop warfarin 5 days pre-procedure; start therapeutic LMWH (e.g., enoxaparin 1mg/kg SC BD) when INR subtherapeutic; last LMWH dose 24 hours before procedure (therapeutic) or 12 hours (prophylactic); restart warfarin evening of/after procedure; bridge with prophylactic LMWH until INR therapeutic. DOACs do not require bridging — simply hold for procedure-specific interval.",
+    "ground_truth_source": "NEJM 2015;373:823-833 (BRIDGE Trial); ACCP VTE Guidelines 2022; ESC AF Guidelines 2020"
+  },
+  {
+    "id": "PHARM-08",
+    "domain": "pharmacology",
+    "query": "Can ibuprofen be safely co-prescribed with prednisone, and what are the risks?",
+    "expected_agents": ["pharmacology"],
+    "ground_truth_answer": "Co-prescription of ibuprofen (NSAID) with prednisone (corticosteroid) significantly increases gastrointestinal risk and is generally to be avoided without gastroprotection. Risks: (1) GI ulceration and bleeding — both agents independently increase GI mucosal injury; combined use multiplies risk ~15-fold compared to either alone (per observational data). NSAIDs inhibit COX-1-dependent prostaglandin synthesis (mucosal protection); corticosteroids impair mucosal repair. (2) Fluid retention and oedema — both can cause sodium/water retention; additive effect. (3) Hypertension worsening — both agents raise BP via fluid retention. (4) Renal impairment — NSAIDs reduce renal prostaglandin synthesis; combined with steroids can precipitate AKI. (5) Hyperkalaemia risk in renal impairment. If analgesia is needed during corticosteroid therapy: prefer paracetamol; if NSAID unavoidable, add a PPI (omeprazole or lansoprazole) for gastroprotection and use the lowest effective NSAID dose for the shortest duration.",
+    "ground_truth_source": "Arch Intern Med 1991;151:1531-1536 (NSAID + corticosteroid GI risk); BNF 2024; NICE guideline on NSAIDs"
+  },
+  {
+    "id": "PHARM-09",
+    "domain": "pharmacology",
+    "query": "What is the recommended SGLT2 inhibitor for heart failure with preserved ejection fraction?",
+    "expected_agents": ["pharmacology"],
+    "ground_truth_answer": "Empagliflozin and dapagliflozin are both now indicated for heart failure with preserved ejection fraction (HFpEF, EF ≥50%). EMPEROR-Preserved (NEJM 2021): empagliflozin 10mg reduced the composite of cardiovascular death or worsening heart failure by 21% (HR 0.79, p<0.001); benefit driven primarily by reduction in hospitalisation for HF. DELIVER (NEJM 2022): dapagliflozin 10mg reduced worsening HF or CV death by 18% (HR 0.82, p<0.001) in patients with LVEF >40%. Both agents approved for HFpEF: empagliflozin by FDA (August 2022) and dapagliflozin by FDA (May 2022). ESC and ACC/AHA guidelines now give a Class IIa recommendation for SGLT2 inhibitors in HFpEF. Dosing: both 10mg once daily. Renal threshold: avoid initiating if eGFR <20–25 mL/min/1.73m² depending on agent; continue if eGFR falls during treatment per updated guidance.",
+    "ground_truth_source": "NEJM 2021;385:1451-1461 (EMPEROR-Preserved); NEJM 2022;387:1089-1098 (DELIVER); ESC HF Guidelines 2023 Update"
+  },
+  {
+    "id": "PHARM-10",
+    "domain": "pharmacology",
+    "query": "What is the mechanism and clinical use of tocilizumab?",
+    "expected_agents": ["pharmacology"],
+    "ground_truth_answer": "Tocilizumab is a humanised monoclonal antibody targeting the IL-6 receptor (both membrane-bound and soluble forms), blocking IL-6 signalling. IL-6 is a pro-inflammatory cytokine central to the cytokine storm. Clinical uses: (1) Rheumatoid arthritis — biologic DMARD, SC weekly or IV every 4 weeks; used for moderate-severe RA inadequately controlled by MTX. (2) Giant cell arteritis — EULAR/ACR recommended, SC weekly or every 2 weeks. (3) Cytokine release syndrome (CRS) — FDA-approved for CAR-T/immunotherapy-induced CRS; single IV dose 8mg/kg (max 800mg), repeated if no response in 8 hours. (4) COVID-19 — RECOVERY trial (NEJM 2021) and REMAP-CAP demonstrated mortality benefit in hospitalised COVID-19 with hypoxia + systemic inflammation (elevated CRP ≥75mg/L); standard of care in combination with dexamethasone. Monitoring: LFTs (transaminase elevation), neutropenia, reactivation of latent TB/hepatitis B (screen before starting), bowel perforation risk (diverticular disease caution).",
+    "ground_truth_source": "NEJM 2021;384:20-30 (RECOVERY Tocilizumab); ACR/EULAR RA Guidelines 2021; FDA labelling"
+  },
+
+  {
+    "id": "PATIENT-01",
+    "domain": "patient",
+    "query": "What medications is the patient currently prescribed?",
+    "expected_agents": ["patient"],
+    "ground_truth_answer": "Retrieve from patient record. Expected: the agent queries the patient database and returns the active medication list for the current session's patient context, including drug name, dose, frequency, and prescriber notes.",
+    "ground_truth_source": "Patient database record"
+  },
+  {
+    "id": "PATIENT-02",
+    "domain": "patient",
+    "query": "Does this patient have any documented drug allergies?",
+    "expected_agents": ["patient"],
+    "ground_truth_answer": "Retrieve from patient record. Expected: the agent returns documented allergies with reaction type (e.g. anaphylaxis, rash, GI intolerance) and the causative agent.",
+    "ground_truth_source": "Patient database record"
+  },
+  {
+    "id": "PATIENT-03",
+    "domain": "patient",
+    "query": "What is the patient's most recent blood pressure reading?",
+    "expected_agents": ["patient"],
+    "ground_truth_answer": "Retrieve from patient record. Expected: the agent returns the most recent vital sign entry including BP value (systolic/diastolic), date/time recorded.",
+    "ground_truth_source": "Patient database record"
+  },
+  {
+    "id": "PATIENT-04",
+    "domain": "patient",
+    "query": "Summarise the patient's active diagnoses.",
+    "expected_agents": ["patient"],
+    "ground_truth_answer": "Retrieve from patient record. Expected: the agent returns all active conditions with ICD codes where available, diagnosis date, and current status.",
+    "ground_truth_source": "Patient database record"
+  },
+  {
+    "id": "PATIENT-05",
+    "domain": "patient",
+    "query": "What is the patient's HbA1c trend over the past year?",
+    "expected_agents": ["patient"],
+    "ground_truth_answer": "Retrieve from patient record. Expected: the agent returns sequential HbA1c values with dates to allow trend interpretation (improving, worsening, stable).",
+    "ground_truth_source": "Patient database record"
+  },
+  {
+    "id": "PATIENT-06",
+    "domain": "patient",
+    "query": "Has this patient had any hospitalisations in the last 12 months?",
+    "expected_agents": ["patient"],
+    "ground_truth_answer": "Retrieve from patient record. Expected: the agent returns hospitalisation history with dates, reason for admission, and discharge diagnosis.",
+    "ground_truth_source": "Patient database record"
+  },
+  {
+    "id": "PATIENT-07",
+    "domain": "patient",
+    "query": "What blood type is recorded for this patient?",
+    "expected_agents": ["patient"],
+    "ground_truth_answer": "Retrieve from patient record. Expected: the agent returns the ABO/Rh blood type on record.",
+    "ground_truth_source": "Patient database record"
+  },
+  {
+    "id": "PATIENT-08",
+    "domain": "patient",
+    "query": "Does the patient have a documented advance directive or DNR order?",
+    "expected_agents": ["patient"],
+    "ground_truth_answer": "Retrieve from patient record. Expected: the agent returns whether a DNR/DNAR or advance care plan is documented, with the date of documentation.",
+    "ground_truth_source": "Patient database record"
+  },
+  {
+    "id": "PATIENT-09",
+    "domain": "patient",
+    "query": "What surgical procedures has this patient previously undergone?",
+    "expected_agents": ["patient"],
+    "ground_truth_answer": "Retrieve from patient record. Expected: the agent returns the procedural history with dates and operative notes where available.",
+    "ground_truth_source": "Patient database record"
+  },
+  {
+    "id": "PATIENT-10",
+    "domain": "patient",
+    "query": "What are the patient's current vital sign trends?",
+    "expected_agents": ["patient"],
+    "ground_truth_answer": "Retrieve from patient record. Expected: the agent returns recent vital sign series (BP, HR, SpO2, temperature, respiratory rate) with dates to enable trend analysis.",
+    "ground_truth_source": "Patient database record"
+  },
+
+  {
+    "id": "REPORT-01",
+    "domain": "report_analyzer",
+    "query": "Analyse the attached CBC report and flag any critical values.",
+    "expected_agents": ["report_analyzer"],
+    "ground_truth_answer": "Expected: the agent extracts structured lab values from the report (WBC, RBC, Hgb, Hct, MCV, MCH, MCHC, PLT, differential), compares each against reference ranges, and flags any values outside normal limits with clinical context. Critical values (e.g. WBC >30×10⁹/L, Hgb <7g/dL, PLT <50×10⁹/L) flagged with ⚠️ and recommended follow-up action.",
+    "ground_truth_source": "Extracted from uploaded report"
+  },
+  {
+    "id": "REPORT-02",
+    "domain": "report_analyzer",
+    "query": "What does this chest X-ray report indicate about the lung fields?",
+    "expected_agents": ["report_analyzer"],
+    "ground_truth_answer": "Expected: the agent extracts radiological findings (consolidation, effusion, pneumothorax, cardiomegaly, hilar changes, interstitial pattern) from the report or image, provides anatomical localisation, indicates severity, and summarises the radiologist impression.",
+    "ground_truth_source": "Extracted from uploaded report or image"
+  },
+  {
+    "id": "REPORT-03",
+    "domain": "report_analyzer",
+    "query": "Summarise the key findings from this renal function panel.",
+    "expected_agents": ["report_analyzer"],
+    "ground_truth_answer": "Expected: the agent extracts urea, creatinine, eGFR, electrolytes (Na, K, Cl, HCO3), and flags: elevated creatinine/reduced eGFR (CKD staging), hyperkalaemia, hyponatraemia, metabolic acidosis (low bicarb). Each abnormal result contextualised clinically.",
+    "ground_truth_source": "Extracted from uploaded report"
+  },
+  {
+    "id": "REPORT-04",
+    "domain": "report_analyzer",
+    "query": "What medication changes were made at discharge according to this discharge summary?",
+    "expected_agents": ["report_analyzer"],
+    "ground_truth_answer": "Expected: the agent extracts medications started (new), stopped (discontinued), dose-changed, or continued from the discharge summary, structured as a reconciliation list with reason for each change.",
+    "ground_truth_source": "Extracted from uploaded discharge summary"
+  },
+  {
+    "id": "REPORT-05",
+    "domain": "report_analyzer",
+    "query": "Are there any abnormal liver function test results in this panel?",
+    "expected_agents": ["report_analyzer"],
+    "ground_truth_answer": "Expected: the agent extracts ALT, AST, ALP, GGT, bilirubin (total/direct), albumin, total protein from the report, flags values outside reference range, and provides pattern interpretation (hepatocellular vs. cholestatic injury, severity grading).",
+    "ground_truth_source": "Extracted from uploaded report"
+  },
+  {
+    "id": "REPORT-06",
+    "domain": "report_analyzer",
+    "query": "Identify any consolidation or effusion on this CT chest report.",
+    "expected_agents": ["report_analyzer"],
+    "ground_truth_answer": "Expected: the agent extracts radiological findings specifically relating to consolidation (location, lobe, density, extent) and pleural effusion (side, size estimate, loculated or free-flowing), and summarises clinical significance.",
+    "ground_truth_source": "Extracted from uploaded CT report"
+  },
+  {
+    "id": "REPORT-07",
+    "domain": "report_analyzer",
+    "query": "What does this lipid panel show and what are the cardiovascular risk implications?",
+    "expected_agents": ["report_analyzer"],
+    "ground_truth_answer": "Expected: the agent extracts total cholesterol, LDL-C, HDL-C, triglycerides, non-HDL-C, LDL/HDL ratio; flags values above/below targets per ACC/AHA guidelines; contextualises against risk level (primary vs. secondary prevention) if available.",
+    "ground_truth_source": "Extracted from uploaded report"
+  },
+  {
+    "id": "REPORT-08",
+    "domain": "report_analyzer",
+    "query": "Summarise the MRI brain findings from this radiology report.",
+    "expected_agents": ["report_analyzer"],
+    "ground_truth_answer": "Expected: the agent extracts key MRI brain findings: white matter changes, lesion characteristics (size, location, signal characteristics on T1/T2/FLAIR/DWI), mass effect, midline shift, enhancement pattern, ventricular system, and radiologist impression.",
+    "ground_truth_source": "Extracted from uploaded radiology report"
+  },
+  {
+    "id": "REPORT-09",
+    "domain": "report_analyzer",
+    "query": "Extract all abnormal values from this comprehensive metabolic panel.",
+    "expected_agents": ["report_analyzer"],
+    "ground_truth_answer": "Expected: the agent extracts all CMP components (Na, K, Cl, HCO3, BUN, creatinine, eGFR, glucose, calcium, total protein, albumin, total bilirubin, ALP, ALT, AST), identifies abnormals with reference range comparison, and flags any critical values.",
+    "ground_truth_source": "Extracted from uploaded report"
+  },
+  {
+    "id": "REPORT-10",
+    "domain": "report_analyzer",
+    "query": "What are the main conclusions of this echocardiography report?",
+    "expected_agents": ["report_analyzer"],
+    "ground_truth_answer": "Expected: the agent extracts LVEF (%), LV size and function, diastolic function grade, valvular findings (stenosis/regurgitation severity), pericardial effusion, RV function, RVSP estimate, and the overall echocardiographic conclusion and clinical recommendation.",
+    "ground_truth_source": "Extracted from uploaded echocardiography report"
+  }
+]

@@ -1,20 +1,25 @@
 #!/usr/bin/env bash
 # run_eval.sh — Full dissertation evaluation run (RAGAS + 4 ablation configs)
 #
-# Run from project root on homeserver:
-#   chmod +x run_eval.sh && ./run_eval.sh
+# Usage (from any directory):
+#   bash /path/to/MediCortex-AI-2.0/run_eval.sh
+#
+# All paths are relative to the script's own directory — works regardless
+# of where the project is cloned on the machine.
 #
 # Results saved to:
-#   results/ragas_scores.json
-#   results/ablation_*.json
-#   ~/eval_results.md   ← copy this file to laptop and paste to Claude when done
+#   <project>/results/ragas_scores.json
+#   <project>/results/ablation_*.json
+#   ~/eval_results.md   ← copy this to laptop and paste to Claude when done
 #
 # Total runtime: ~3.5 hrs
 
 set -euo pipefail
 
-PROJ="$(cd "$(dirname "$0")" && pwd)"
+# ── all paths derived from script location ─────────────────────────────────────
+PROJ="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="$PROJ/.venv/bin/python3"
+PIP="$PROJ/.venv/bin/pip"
 ENV_FILE="$PROJ/.env"
 ORCH_SCRIPT="$PROJ/orchestrator.py"
 RESULTS_DIR="$PROJ/results"
@@ -25,13 +30,12 @@ ORCH_PORT=8000   # from PORT=8000 in .env
 mkdir -p "$RESULTS_DIR"
 
 # ── install eval dependencies if missing ───────────────────────────────────────
-log_plain() { echo "$*"; }
-log_plain "Checking eval dependencies..."
+echo "Checking eval dependencies..."
 "$VENV" -c "import ragas, datasets, pandas" 2>/dev/null || {
-    log_plain "Installing missing packages (ragas datasets pandas)..."
-    "$PROJ/.venv/bin/pip" install -q ragas datasets pandas
+    echo "Installing missing packages (ragas datasets pandas)..."
+    "$PIP" install -q ragas datasets pandas
 }
-log_plain "Dependencies ok."
+echo "Dependencies ok."
 
 # ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -86,7 +90,6 @@ restore_env() {
 }
 
 capture_run() {
-    # Run a command, tee stdout to terminal + MD file, return output
     "$@" 2>&1 | tee -a "$MD_OUT"
 }
 
@@ -104,10 +107,10 @@ append_json() {
 
 # ── read original .env values before any changes ──────────────────────────────
 
-ORIG_JUDGE=$(grep "^JUDGE_ENABLED=" "$ENV_FILE" | cut -d= -f2)
-ORIG_ARANGO=$(grep "^ARANGODB_HOST=" "$ENV_FILE" | cut -d= -f2-)
+ORIG_JUDGE=$(grep    "^JUDGE_ENABLED="    "$ENV_FILE" | cut -d= -f2)
+ORIG_ARANGO=$(grep   "^ARANGODB_HOST="   "$ENV_FILE" | cut -d= -f2-)
 ORIG_MEDGEMMA=$(grep "^MEDGEMMA_API_URL=" "$ENV_FILE" | cut -d= -f2-)
-ORIG_MAX_AGENTS=$(grep "^MAX_CONCURRENT_AGENTS\s*=" "$ORCH_SCRIPT" | head -1 | grep -o '[0-9]*')
+ORIG_MAX_AGENTS=$(grep "^MAX_CONCURRENT_AGENTS" "$ORCH_SCRIPT" | head -1 | grep -o '[0-9]*')
 
 # ── init markdown output file ──────────────────────────────────────────────────
 
@@ -124,6 +127,7 @@ HEADER
 
 log "=== Evaluation suite starting ==="
 log "RAGAS + 4 ablation configs. Estimated total: ~3.5 hrs"
+log "Project root: $PROJ"
 log "Markdown output: $MD_OUT"
 echo ""
 
@@ -140,14 +144,14 @@ echo ""
 
 log "PHASE 1/5: RAGAS (~40 min)..."
 capture_run "$VENV" "$PROJ/tests/evaluation/run_ragas.py" \
-    --output "$RESULTS_DIR/ragas_scores.json"
+    --test-set "$PROJ/tests/resources/eval_test_set.json" \
+    --output   "$RESULTS_DIR/ragas_scores.json"
 append_json "ragas_scores.json" "$RESULTS_DIR/ragas_scores.json"
 log "PHASE 1 complete."
 echo ""
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PHASE 2 — Ablation: no_judge  (~39 min)
-# JUDGE_ENABLED=False  → judge node skipped entirely
 # ══════════════════════════════════════════════════════════════════════════════
 
 {
@@ -170,7 +174,6 @@ echo ""
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PHASE 3 — Ablation: no_kg  (~37 min)
-# ARANGODB_HOST=""  → KB retrieval returns empty context, agents run on prompt only
 # ══════════════════════════════════════════════════════════════════════════════
 
 {
@@ -181,7 +184,7 @@ echo ""
 } >> "$MD_OUT"
 
 log "PHASE 3/5: ablation no_kg (~37 min)..."
-start_orch   # restore first, then stop cleanly
+start_orch
 stop_orch
 set_env "ARANGODB_HOST" ""
 start_orch
@@ -218,8 +221,7 @@ echo ""
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PHASE 5 — Ablation: no_adapt  (~37 min)
-# MEDGEMMA_API_URL pointed at dead port → synthesis falls back to gemma4:31b-cloud
-# (no domain adaptation — general-purpose model for synthesis)
+# MEDGEMMA_API_URL → dead port, synthesis falls back to gemma4:31b-cloud
 # ══════════════════════════════════════════════════════════════════════════════
 
 {

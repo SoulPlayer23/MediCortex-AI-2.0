@@ -50,5 +50,7 @@ frontend-dev.skill
 web-testing.skill
 intelligent-agent-builder.skill
 
-# Test files
+# Test files — exclude sensitive ratings/images but allow the eval test set
 tests/resources/
+!tests/resources/eval_test_set.json
+!tests/resources/routing_ground_truth.json
