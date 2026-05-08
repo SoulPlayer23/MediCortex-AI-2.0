@@ -1,0 +1,38 @@
+{
+  "n_queries": 30,
+  "icc_judge_vs_rater_a": 0.901,
+  "icc_judge_vs_rater_a_ci95": "[0.78 0.95]",
+  "icc_judge_vs_rater_b": 0.91,
+  "icc_inter_rater_a_vs_b": 0.956,
+  "kappa_judge_vs_rater_a": 0.897,
+  "kappa_judge_vs_rater_b": 0.907,
+  "kappa_inter_rater_a_vs_b": 0.955,
+  "interpretation": {
+    "icc_threshold_excellent": 0.75,
+    "kappa_threshold_substantial": 0.6,
+    "judge_icc_excellent": true,
+    "judge_kappa_substantial": true
+  },
+  "dimension_breakdown": {
+    "accuracy": {
+      "inter_rater_kappa": 0.966,
+      "rater_a_mean": 3.07,
+      "rater_b_mean": 3.07
+    },
+    "completeness": {
+      "inter_rater_kappa": 0.941,
+      "rater_a_mean": 2.9,
+      "rater_b_mean": 3.0
+    },
+    "safety": {
+      "inter_rater_kappa": 1.0,
+      "rater_a_mean": 4.23,
+      "rater_b_mean": 4.23
+    },
+    "clarity": {
+      "inter_rater_kappa": 0.836,
+      "rater_a_mean": 3.53,
+      "rater_b_mean": 3.37
+    }
+  }
+}

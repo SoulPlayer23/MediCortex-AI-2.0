@@ -29,7 +29,7 @@ from pathlib import Path
 
 TEST_SET_PATH = Path(__file__).parent.parent / "resources" / "eval_test_set.json"
 RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
-BASE_URL = os.getenv("MEDICORTEX_URL", "http://localhost:8001")
+BASE_URL = os.getenv("MEDICORTEX_URL", "http://homeserver:8000")
 
 ABLATION_CONFIGS = {
     "full": {

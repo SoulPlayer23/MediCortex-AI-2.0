@@ -9,30 +9,51 @@ Usage:
     EVAL_FORCE_NOAGENT=1 python tests/evaluation/run_ragas.py --output results/ragas_noagent.json
 
 Prereqs:
-    pip install ragas datasets httpx asyncio
-    OBS-1 must be complete (node_timings + retrieval in message_metadata).
+    pip install ragas datasets httpx
     Live orchestrator running on port 8001.
+    GROQ_API_KEY set in .env (used for RAGAS scoring — no OpenAI key required).
 """
 
 import argparse
 import asyncio
 import json
 import os
+import sys
 import time
 import httpx
 from pathlib import Path
 
-# Install: pip install ragas datasets
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 try:
     from ragas import evaluate
-    from ragas.metrics import faithfulness, answer_relevancy, context_precision
+    from ragas.metrics.collections import Faithfulness, AnswerRelevancy, ContextPrecision
+    from ragas.llms import llm_factory
     from datasets import Dataset
+    import pandas as pd
 except ImportError:
-    raise SystemExit("Run: pip install ragas datasets")
+    raise SystemExit("Run: pip install ragas datasets pandas")
 
-BASE_URL = os.getenv("MEDICORTEX_URL", "http://localhost:8001")
+from openai import OpenAI
+from config import settings
+
+BASE_URL = os.getenv("MEDICORTEX_URL", "http://homeserver:8001")
 TEST_SET_PATH = Path(__file__).parent.parent / "resources" / "eval_test_set.json"
 RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
+
+
+def _build_ragas_metrics():
+    """Build RAGAS metrics backed by Groq (OpenAI-compatible, no OpenAI key needed)."""
+    groq_client = OpenAI(
+        api_key=settings.GROQ_API_KEY,
+        base_url="https://api.groq.com/openai/v1",
+    )
+    llm = llm_factory("llama-3.3-70b-versatile", client=groq_client)
+    return [
+        Faithfulness(llm=llm),
+        AnswerRelevancy(llm=llm),
+        ContextPrecision(llm=llm),
+    ]
 
 
 async def query_medicortex(query: str, session_id: str) -> tuple[str, dict]:
@@ -41,7 +62,6 @@ async def query_medicortex(query: str, session_id: str) -> tuple[str, dict]:
     metadata = {}
 
     async with httpx.AsyncClient(timeout=120.0) as client:
-        # Create or reuse session
         async with client.stream(
             "POST",
             f"{BASE_URL}/chat/stream",
@@ -103,8 +123,16 @@ async def run_evaluation(test_set_path: Path, output_path: Path):
         # Avoid hammering the endpoint
         await asyncio.sleep(2)
 
-    # RAGAS evaluation
-    print("\nRunning RAGAS scoring...")
+    # Save raw responses before RAGAS scoring (allows re-running scoring without re-querying)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path = output_path.with_name(output_path.stem + "_raw.json")
+    with open(raw_path, "w") as f:
+        json.dump(rows, f, indent=2)
+    print(f"\nRaw responses saved to {raw_path}")
+
+    # RAGAS evaluation (Groq-backed, no OpenAI key needed)
+    print("Running RAGAS scoring via Groq llama-3.3-70b-versatile...")
+    metrics = _build_ragas_metrics()
     ragas_rows = [
         {
             "question": r["question"],
@@ -113,31 +141,40 @@ async def run_evaluation(test_set_path: Path, output_path: Path):
             "ground_truth": r["ground_truth"],
         }
         for r in rows
+        if r["answer"]  # skip empty responses (timeouts)
     ]
+    valid_ids = [r["item_id"] for r in rows if r["answer"]]
     dataset = Dataset.from_list(ragas_rows)
-    scores = evaluate(dataset, metrics=[faithfulness, answer_relevancy, context_precision])
+    scores = evaluate(dataset, metrics=metrics)
     scores_df = scores.to_pandas()
 
-    # Merge back domain and metadata
+    # Merge scores back by position (skipped rows get NaN)
+    score_map = {vid: scores_df.iloc[i] for i, vid in enumerate(valid_ids)}
     for i, row in enumerate(rows):
-        rows[i]["faithfulness"] = float(scores_df.iloc[i].get("faithfulness", 0))
-        rows[i]["answer_relevancy"] = float(scores_df.iloc[i].get("answer_relevancy", 0))
-        rows[i]["context_precision"] = float(scores_df.iloc[i].get("context_precision", 0))
+        s = score_map.get(row["item_id"])
+        rows[i]["faithfulness"] = float(s["faithfulness"]) if s is not None else None
+        rows[i]["answer_relevancy"] = float(s["answer_relevancy"]) if s is not None else None
+        rows[i]["context_precision"] = float(s["context_precision"]) if s is not None else None
 
-    # Save raw results
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    # Save final results
     with open(output_path, "w") as f:
         json.dump(rows, f, indent=2)
 
     # Print per-domain summary (Table III format)
-    import pandas as pd
     df = pd.DataFrame(rows)
+    df_valid = df.dropna(subset=["faithfulness"])
     print("\n=== TABLE III — RAGAS SCORES PER DOMAIN ===")
-    summary = df.groupby("domain")[["faithfulness", "answer_relevancy", "context_precision"]].mean()
+    summary = df_valid.groupby("domain")[["faithfulness", "answer_relevancy", "context_precision"]].mean()
     print(summary.round(3).to_string())
-    print(f"\nOverall — Faithfulness: {df['faithfulness'].mean():.3f}, "
-          f"Answer Relevancy: {df['answer_relevancy'].mean():.3f}, "
-          f"Context Precision: {df['context_precision'].mean():.3f}")
+    print(f"\nOverall — Faithfulness: {df_valid['faithfulness'].mean():.3f}, "
+          f"Answer Relevancy: {df_valid['answer_relevancy'].mean():.3f}, "
+          f"Context Precision: {df_valid['context_precision'].mean():.3f}")
+    avg_judge = df_valid["judge_score"].dropna().mean()
+    mean_latency = df_valid["node_timings"].apply(
+        lambda t: sum(t.values()) / 1000 if t else None
+    ).dropna().mean()
+    print(f"\nMean judge score: {avg_judge:.2f}/5")
+    print(f"Mean total node latency: {mean_latency:.1f}s" if mean_latency else "")
     print(f"\nResults saved to {output_path}")
 
 

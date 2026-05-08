@@ -73,8 +73,11 @@ def compute_calibration(ratings_path: Path, output_path: Path):
     icc_a = pingouin.intraclass_corr(
         data=icc_data_a, targets="item", raters="rater", ratings="score"
     )
-    icc_a_value = float(icc_a[icc_a["Type"] == "ICC2"]["ICC"].values[0])
-    icc_a_ci = icc_a[icc_a["Type"] == "ICC2"][["CI95%"]].values[0][0]
+    # pingouin ≥0.5 uses "ICC(A,1)" labels; older used "ICC2" — support both
+    _icc2_type = "ICC2" if "ICC2" in icc_a["Type"].values else "ICC(A,1)"
+    icc_a_value = float(icc_a[icc_a["Type"] == _icc2_type]["ICC"].values[0])
+    _ci_col = "CI95%" if "CI95%" in icc_a.columns else "CI95"
+    icc_a_ci = icc_a[icc_a["Type"] == _icc2_type][[_ci_col]].values[0][0]
 
     # ICC — Judge vs Rater B
     icc_data_b = pd.DataFrame({
@@ -85,7 +88,7 @@ def compute_calibration(ratings_path: Path, output_path: Path):
     icc_b = pingouin.intraclass_corr(
         data=icc_data_b, targets="item", raters="rater", ratings="score"
     )
-    icc_b_value = float(icc_b[icc_b["Type"] == "ICC2"]["ICC"].values[0])
+    icc_b_value = float(icc_b[icc_b["Type"] == _icc2_type]["ICC"].values[0])
 
     # ICC — Inter-rater (A vs B)
     icc_data_inter = pd.DataFrame({
@@ -96,7 +99,7 @@ def compute_calibration(ratings_path: Path, output_path: Path):
     icc_inter = pingouin.intraclass_corr(
         data=icc_data_inter, targets="item", raters="rater", ratings="score"
     )
-    icc_inter_value = float(icc_inter[icc_inter["Type"] == "ICC2"]["ICC"].values[0])
+    icc_inter_value = float(icc_inter[icc_inter["Type"] == _icc2_type]["ICC"].values[0])
 
     # Weighted Cohen's kappa
     kappa_judge_a = cohen_kappa_score(judge, rater_a, weights="quadratic")
@@ -115,8 +118,8 @@ def compute_calibration(ratings_path: Path, output_path: Path):
         "interpretation": {
             "icc_threshold_excellent": 0.75,
             "kappa_threshold_substantial": 0.60,
-            "judge_icc_excellent": icc_a_value >= 0.75,
-            "judge_kappa_substantial": kappa_judge_a >= 0.60,
+            "judge_icc_excellent": bool(icc_a_value >= 0.75),
+            "judge_kappa_substantial": bool(kappa_judge_a >= 0.60),
         },
     }
 
