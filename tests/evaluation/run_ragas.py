@@ -63,15 +63,40 @@ def _build_ragas_metrics():
     return [faithfulness, context_precision]
 
 
-async def collect_responses(test_set_path: Path) -> list[dict]:
-    """Phase 1 (async): query the live orchestrator for every test item."""
+async def collect_responses(
+    test_set_path: Path,
+    checkpoint_path: Path | None = None,
+    item_ids: list[str] | None = None,
+) -> list[dict]:
+    """Phase 1 (async): query the live orchestrator for every test item.
+
+    Args:
+        checkpoint_path: If provided, append each result here immediately after
+            the query so a crash never loses completed work.
+        item_ids: If provided, only run items whose id is in this list.
+    """
     with open(test_set_path) as f:
         test_set = json.load(f)
 
+    if item_ids:
+        test_set = [t for t in test_set if t["id"] in item_ids]
+
+    # Load already-completed rows from checkpoint so we can resume.
+    completed: dict[str, dict] = {}
+    if checkpoint_path and checkpoint_path.exists():
+        with open(checkpoint_path) as f:
+            for row in json.load(f):
+                completed[row["item_id"]] = row
+        print(f"Resuming: {len(completed)} items already in checkpoint.")
+
     print(f"Running evaluation on {len(test_set)} queries...")
-    rows = []
+    rows = list(completed.values())
 
     for i, item in enumerate(test_set):
+        if item["id"] in completed:
+            print(f"  [{i+1}/{len(test_set)}] {item['id']}: skipped (already done)")
+            continue
+
         print(f"  [{i+1}/{len(test_set)}] {item['id']}: {item['query'][:60]}...")
         session_id = str(uuid.uuid4())
 
@@ -82,11 +107,14 @@ async def collect_responses(test_set_path: Path) -> list[dict]:
             response = ""
             metadata = {}
 
-        # retrieval_feedback is a list of strings emitted by node_retrieve_knowledge
+        # retrieval_feedback is a list of strings (or dicts) from node_retrieve_knowledge
         retrieval_feedback = metadata.get("retrieval_feedback", [])
-        context = "\n\n".join(retrieval_feedback) if retrieval_feedback else ""
+        context = "\n\n".join(
+            fb if isinstance(fb, str) else json.dumps(fb)
+            for fb in retrieval_feedback
+        ) if retrieval_feedback else ""
 
-        rows.append({
+        row = {
             "question": item["query"],
             "answer": response,
             "contexts": [context] if context else [""],
@@ -96,7 +124,13 @@ async def collect_responses(test_set_path: Path) -> list[dict]:
             "judge_score": metadata.get("judge_score"),
             "agents_used": metadata.get("agents_used", []),
             "node_timings": metadata.get("node_timings", {}),
-        })
+        }
+        rows.append(row)
+
+        if checkpoint_path:
+            checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(checkpoint_path, "w") as f:
+                json.dump(rows, f, indent=2)
 
         await asyncio.sleep(2)
 
@@ -188,24 +222,26 @@ if __name__ == "__main__":
     parser.add_argument("--output", default=str(RESULTS_DIR / "ragas_scores.json"))
     parser.add_argument("--from-raw", metavar="RAW_JSON",
                         help="Skip querying; load saved raw responses and run RAGAS scoring only")
+    parser.add_argument("--item-ids", nargs="+", metavar="ID",
+                        help="Run only these item IDs (e.g. PUBMED-01 DIAG-03)")
     args = parser.parse_args()
 
     output_path = Path(args.output)
 
     if args.from_raw:
-        # Resume from a previous run's raw checkpoint
         with open(args.from_raw) as f:
             rows = json.load(f)
         print(f"Loaded {len(rows)} rows from {args.from_raw}")
     else:
-        # Phase 1: async — collect live responses
-        rows = asyncio.run(collect_responses(Path(args.test_set)))
-
-        # Save raw before scoring (safe checkpoint)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         raw_path = output_path.with_name(output_path.stem + "_raw.json")
-        with open(raw_path, "w") as f:
-            json.dump(rows, f, indent=2)
+
+        # Phase 1: async — collect live responses, checkpointing after each item
+        rows = asyncio.run(collect_responses(
+            Path(args.test_set),
+            checkpoint_path=raw_path,
+            item_ids=args.item_ids,
+        ))
         print(f"\nRaw responses saved to {raw_path}")
 
     # Phase 2: sync — RAGAS scoring in its own clean event loop
