@@ -102,8 +102,10 @@ async def collect_responses(
 
         try:
             response, metadata = await _query_medicortex(item["query"], session_id)
+            if not response:
+                print(f"    WARN: empty response (metadata={metadata})")
         except Exception as e:
-            print(f"    ERROR: {e}")
+            print(f"    ERROR ({type(e).__name__}): {e}")
             response = ""
             metadata = {}
 
@@ -141,12 +143,15 @@ async def _query_medicortex(query: str, session_id: str) -> tuple[str, dict]:
     response_text = ""
     metadata = {}
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(timeout=300.0) as client:
         async with client.stream(
             "POST",
             f"{BASE_URL}/chat/stream",
             json={"message": query, "session_id": session_id},
         ) as resp:
+            if resp.status_code != 200:
+                body = await resp.aread()
+                raise RuntimeError(f"HTTP {resp.status_code}: {body.decode()[:200]}")
             async for line in resp.aiter_lines():
                 if not line or not line.startswith("data: "):
                     continue
