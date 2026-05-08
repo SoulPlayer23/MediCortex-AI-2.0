@@ -27,14 +27,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 try:
     from ragas import evaluate
-    from ragas.metrics import Faithfulness, ContextPrecision
-    from ragas.llms import LangchainLLMWrapper
-    from langchain_openai import ChatOpenAI
+    from ragas.metrics.collections import Faithfulness, ContextPrecision
+    from ragas.llms import llm_factory
     from datasets import Dataset
     import pandas as pd
 except ImportError:
-    raise SystemExit("Run: pip install ragas datasets pandas langchain-openai")
+    raise SystemExit("Run: pip install ragas datasets pandas")
 
+from openai import OpenAI
 from config import settings
 
 BASE_URL = os.getenv("MEDICORTEX_URL", "http://localhost:8001")
@@ -44,11 +44,11 @@ RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
 
 def _build_ragas_metrics():
     """Build RAGAS metrics backed by Groq (OpenAI-compatible, no OpenAI key needed)."""
-    llm = LangchainLLMWrapper(ChatOpenAI(
-        model="llama-3.3-70b-versatile",
+    groq_client = OpenAI(
         api_key=settings.GROQ_API_KEY,
         base_url="https://api.groq.com/openai/v1",
-    ))
+    )
+    llm = llm_factory("llama-3.3-70b-versatile", client=groq_client)
     return [
         Faithfulness(llm=llm),
         ContextPrecision(llm=llm),
