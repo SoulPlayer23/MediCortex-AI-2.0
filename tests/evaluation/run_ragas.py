@@ -35,7 +35,10 @@ os.environ.setdefault("RAGAS_DO_NOT_TRACK", "true")
 
 try:
     from ragas import evaluate
-    from ragas.metrics.collections import Faithfulness, ContextPrecision
+    # Use the old-style singleton instances — these inherit the Metric base class
+    # that evaluate() checks with isinstance(). The new-style classes in
+    # ragas.metrics.collections do NOT pass that check in RAGAS 0.4.x.
+    from ragas.metrics import faithfulness, context_precision
     from ragas.llms import llm_factory
     from openai import OpenAI
     from datasets import Dataset
@@ -49,13 +52,15 @@ RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
 
 
 def _build_ragas_metrics():
-    """RAGAS metrics backed by Groq via llm_factory."""
+    """Configure the old-style RAGAS metric singletons to use Groq as the LLM."""
     groq_client = OpenAI(
         api_key=settings.GROQ_API_KEY,
         base_url="https://api.groq.com/openai/v1",
     )
     llm = llm_factory("llama-3.3-70b-versatile", client=groq_client)
-    return [Faithfulness(llm=llm), ContextPrecision(llm=llm)]
+    faithfulness.llm = llm
+    context_precision.llm = llm
+    return [faithfulness, context_precision]
 
 
 async def collect_responses(test_set_path: Path) -> list[dict]:
