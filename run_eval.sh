@@ -24,6 +24,15 @@ ORCH_PORT=8000   # from PORT=8000 in .env
 
 mkdir -p "$RESULTS_DIR"
 
+# ── install eval dependencies if missing ───────────────────────────────────────
+log_plain() { echo "$*"; }
+log_plain "Checking eval dependencies..."
+"$VENV" -c "import ragas, datasets, pandas" 2>/dev/null || {
+    log_plain "Installing missing packages (ragas datasets pandas)..."
+    "$PROJ/.venv/bin/pip" install -q ragas datasets pandas
+}
+log_plain "Dependencies ok."
+
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 log() {
