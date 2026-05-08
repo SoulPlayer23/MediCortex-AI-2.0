@@ -303,7 +303,7 @@ pytest tests/unit/ tests/integration/ -v --tb=short -m "not stress"
 3. python tests/evaluation/run_ragas.py              → Table III (RAGAS scores per domain)
 4. EVAL_FORCE_NOAGENT=1 python tests/evaluation/run_ragas.py    → Table V baseline
 5. python tests/evaluation/run_ablation.py           → Table VI (4 ablation configs)
-6. Fill tests/resources/human_ratings.csv (30 queries, 2 raters, 4 dimensions each)
+6. ✅ Fill tests/resources/human_ratings.csv (30 queries, 2 raters, 4 dimensions each)  — DONE (2026-05-07)
 7. python tests/evaluation/run_judge_calibration.py  → Table IV (ICC + Cohen's kappa)
 8. python tests/evaluation/plots/generate_all.py     → 4 PDF figures for Section 6.2
 ```
@@ -326,9 +326,17 @@ pytest tests/unit/ tests/integration/ -v --tb=short -m "not stress"
   3. R-GCN ROC curve (load from notebook output)
   4. Judge score distribution histogram (from test set `message_metadata.judge_score`)
 
+- **`tests/evaluation/fetch_judge_scores.py`** ✅ COMPLETE (2026-05-07) — streams all 30 queries to live orchestrator at homeserver:8001, captures `judge_score` + `judge_reason` + `response_text`. Fix applied: `session_id` must be `str(uuid.uuid4())` — the `/chat/stream` endpoint validates UUID format and rejects arbitrary strings with HTTP 422. 29/30 rows scored (1 timeout on PUBMED-05 TAVR/SAVR query).
+
+- **`tests/evaluation/run_scope_guard.py`** ✅ COMPLETE (2026-05-07) — Table 6.6 results: In-scope P=1.000 R=1.000 F1=1.000; Out-of-scope P=1.000 R=1.000 F1=1.000. All 60 queries classified correctly. Filled into `main.tex`.
+
+- **`tests/evaluation/run_routing_context.py`** ✅ COMPLETE (2026-05-07) — Table 6.7 results: WITHOUT routing context 90.0%, WITH routing context 95.0% (+5pp). Filled into `main.tex`.
+
+- **`tests/evaluation/run_latency_profiler.py`** ✅ COMPLETE (2026-05-07) — Table 6.8 results: all 9 nodes timed + E2E ~35,133ms. Filled into `main.tex`.
+
 **Still needed before running EVAL-1:**
 - `tests/resources/eval_test_set.json` ✅ — file exists; verify it has 50 queries with `ground_truth` fields populated
-- `tests/resources/human_ratings.csv` — must be filled in by two human raters (template at `human_ratings_template.csv` ✅)
+- `tests/resources/human_ratings.csv` ✅ COMPLETE (2026-05-07) — 30 queries fetched, all 8 rater columns populated (rater_a + rater_b × accuracy/completeness/safety/clarity, 1–5 scale)
 
 **Human rating sheet:** `tests/resources/human_ratings_template.csv` columns:
 `item_id, query_preview, response_preview, rater_a_accuracy, rater_a_completeness, rater_a_safety, rater_a_clarity, rater_b_accuracy, rater_b_completeness, rater_b_safety, rater_b_clarity, judge_score, judge_reason`

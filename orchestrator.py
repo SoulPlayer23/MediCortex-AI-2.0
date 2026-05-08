@@ -263,6 +263,7 @@ async def node_scope_guard(state: AgentState):
     edge skips directly to restore_privacy → END without touching KB or agents.
     Falls back to in-scope if GROQ_API_KEY is not set or the call fails.
     """
+    _t0_node = _time.monotonic()
     logger.info("NODE: SCOPE GUARD")
     query = state.get("input", "")
 
@@ -294,6 +295,7 @@ async def node_scope_guard(state: AgentState):
     except Exception as e:
         logger.warning("Scope guard LLM call failed — defaulting to in-scope", error=str(e))
 
+    logger.info("node_elapsed_ms", node="scope_guard", elapsed_ms=round((_time.monotonic() - _t0_node) * 1000))
     if not in_scope:
         return {
             "final_output": (
@@ -314,12 +316,14 @@ async def node_scope_guard(state: AgentState):
 
 
 def node_analyze_privacy(state: AgentState):
+    _t0_node = _time.monotonic()
     import uuid as _uuid
     trace_id = state.get("trace_id") or str(_uuid.uuid4())
     # A2A §5.1 — Bind trace_id to structured log context for full-chain tracing
     structlog.contextvars.bind_contextvars(trace_id=trace_id)
     logger.info("NODE: ANALYZE PRIVACY", trace_id=trace_id)
     redacted, mapping = privacy_manager.redact_pii(state['input'])
+    logger.info("node_elapsed_ms", node="analyze_privacy", elapsed_ms=round((_time.monotonic() - _t0_node) * 1000))
     return {
         "trace_id": trace_id,
         "redacted_input": redacted,
@@ -366,6 +370,7 @@ async def node_retrieve_knowledge(state: AgentState):
     All query expansion LLM calls and all ArangoDB lookups run in parallel via
     asyncio.gather, cutting retrieval from ~3–5s serial to ~400–600ms.
     """
+    _t0_node = _time.monotonic()
     logger.info("NODE: RETRIEVE KNOWLEDGE")
     user_query = state['redacted_input']
 
@@ -550,6 +555,7 @@ async def node_retrieve_knowledge(state: AgentState):
     if not context_sections:
         context_sections = [f"[KB: {', '.join(entities)}]\n{_KB_EMPTY_SENTINEL}"]
 
+    logger.info("node_elapsed_ms", node="retrieve_knowledge", elapsed_ms=round((_time.monotonic() - _t0_node) * 1000))
     return {
         "context": context_sections,
         "retrieval_ambiguous": retrieval_ambiguous,
@@ -660,6 +666,7 @@ async def node_retrieve_knowledge_v2(state: AgentState):
     }
 
 def node_router(state: AgentState):
+    _t0_node = _time.monotonic()
     logger.info("NODE: ROUTER")
     input_text = state['redacted_input']
     context_str = "\n".join(state.get("context", []))
@@ -765,6 +772,7 @@ def node_router(state: AgentState):
         except Exception as e:
             logger.warning("Clarification generation failed, proceeding with routing", error=str(e))
 
+    logger.info("node_elapsed_ms", node="router", elapsed_ms=round((_time.monotonic() - _t0_node) * 1000))
     return {"messages": [AIMessage(content=str(routes))]}
 
 def make_agent_node(agent_key: str):
@@ -913,6 +921,7 @@ async def node_aggregator_with_reretrieval(state: AgentState):
     perform an inline re-retrieval pass and re-run the flagging agents before
     aggregating. This avoids complex LangGraph fan-out rewiring.
     """
+    _t0_node = _time.monotonic()
     logger.info("NODE: AGGREGATOR")
 
     # RAG-1 Part B: check for re-retrieval before aggregating
@@ -1034,6 +1043,7 @@ async def node_aggregator_with_reretrieval(state: AgentState):
     out: Dict[str, Any] = {"final_output": formatted}
     if re_retrieval_ran:
         out["retrieval_iteration"] = iteration + 1
+    logger.info("node_elapsed_ms", node="aggregator", elapsed_ms=round((_time.monotonic() - _t0_node) * 1000))
     return out
 
 
@@ -1068,6 +1078,7 @@ def node_reviewer(state: AgentState):
     Respects JUDGE_SAMPLE_RATE, JUDGE_MAX_INPUT_TOKENS, and falls back to
     llama-3.1-8b-instant if the primary model hits rate limits.
     """
+    _t0_node = _time.monotonic()
     logger.info("NODE: REVIEWER")
 
     # ── Sampling gate ─────────────────────────────────────────────────
@@ -1197,14 +1208,17 @@ Reply with ONLY a JSON object in this exact format, no other text:
         logger.warning("reviewer_low_score_disclaimer_appended", score=score, reason=reason)
         return_payload["final_output"] = current_output + disclaimer
 
+    logger.info("node_elapsed_ms", node="reviewer", elapsed_ms=round((_time.monotonic() - _t0_node) * 1000))
     return return_payload
 
 
 def node_restore_privacy(state: AgentState):
+    _t0_node = _time.monotonic()
     logger.info("NODE: RESTORE PRIVACY")
     raw_output = state.get("final_output", "")
     mapping = state.get("pii_mapping", {})
     restored = privacy_manager.restore_privacy(raw_output, mapping)
+    logger.info("node_elapsed_ms", node="restore_privacy", elapsed_ms=round((_time.monotonic() - _t0_node) * 1000))
     return {"final_output": restored}
 
 # ==========================================

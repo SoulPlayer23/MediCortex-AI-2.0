@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 try:
     from ragas import evaluate
-    from ragas.metrics.collections import Faithfulness, AnswerRelevancy, ContextPrecision
+    from ragas.metrics.collections import Faithfulness, ContextPrecision
     from ragas.llms import llm_factory
     from datasets import Dataset
     import pandas as pd
@@ -51,7 +51,6 @@ def _build_ragas_metrics():
     llm = llm_factory("llama-3.3-70b-versatile", client=groq_client)
     return [
         Faithfulness(llm=llm),
-        AnswerRelevancy(llm=llm),
         ContextPrecision(llm=llm),
     ]
 
@@ -153,7 +152,6 @@ async def run_evaluation(test_set_path: Path, output_path: Path):
     for i, row in enumerate(rows):
         s = score_map.get(row["item_id"])
         rows[i]["faithfulness"] = float(s["faithfulness"]) if s is not None else None
-        rows[i]["answer_relevancy"] = float(s["answer_relevancy"]) if s is not None else None
         rows[i]["context_precision"] = float(s["context_precision"]) if s is not None else None
 
     # Save final results
@@ -164,10 +162,9 @@ async def run_evaluation(test_set_path: Path, output_path: Path):
     df = pd.DataFrame(rows)
     df_valid = df.dropna(subset=["faithfulness"])
     print("\n=== TABLE III — RAGAS SCORES PER DOMAIN ===")
-    summary = df_valid.groupby("domain")[["faithfulness", "answer_relevancy", "context_precision"]].mean()
+    summary = df_valid.groupby("domain")[["faithfulness", "context_precision"]].mean()
     print(summary.round(3).to_string())
     print(f"\nOverall — Faithfulness: {df_valid['faithfulness'].mean():.3f}, "
-          f"Answer Relevancy: {df_valid['answer_relevancy'].mean():.3f}, "
           f"Context Precision: {df_valid['context_precision'].mean():.3f}")
     avg_judge = df_valid["judge_score"].dropna().mean()
     mean_latency = df_valid["node_timings"].apply(
