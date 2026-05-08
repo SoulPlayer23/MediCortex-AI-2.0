@@ -82,8 +82,9 @@ async def collect_responses(test_set_path: Path) -> list[dict]:
             response = ""
             metadata = {}
 
-        retrieval_meta = metadata.get("retrieval", {})
-        context = retrieval_meta.get("refined_context", "") or retrieval_meta.get("raw_facts", "")
+        # retrieval_feedback is a list of strings emitted by node_retrieve_knowledge
+        retrieval_feedback = metadata.get("retrieval_feedback", [])
+        context = "\n\n".join(retrieval_feedback) if retrieval_feedback else ""
 
         rows.append({
             "question": item["query"],
@@ -120,10 +121,10 @@ async def _query_medicortex(query: str, session_id: str) -> tuple[str, dict]:
                     break
                 try:
                     event = json.loads(payload)
-                    if event.get("type") == "content":
+                    if event.get("type") == "response":
                         response_text += event.get("content", "")
                     elif event.get("type") == "metadata":
-                        metadata = event.get("data", {})
+                        metadata = event.get("content", {})
                 except json.JSONDecodeError:
                     continue
 
@@ -172,8 +173,10 @@ def run_ragas_scoring(rows: list[dict], output_path: Path) -> list[dict]:
     mean_latency = df_valid["node_timings"].apply(
         lambda t: sum(t.values()) / 1000 if t else None
     ).dropna().mean()
-    print(f"\nMean judge score: {avg_judge:.2f}/5")
-    if mean_latency:
+    import math
+    if not math.isnan(avg_judge):
+        print(f"\nMean judge score: {avg_judge:.2f}/5")
+    if mean_latency and not math.isnan(mean_latency):
         print(f"Mean total node latency: {mean_latency:.1f}s")
     print(f"\nResults saved to {output_path}")
     return rows

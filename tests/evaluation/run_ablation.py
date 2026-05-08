@@ -24,12 +24,13 @@ import asyncio
 import json
 import os
 import time
+import uuid
 import httpx
 from pathlib import Path
 
 TEST_SET_PATH = Path(__file__).parent.parent / "resources" / "eval_test_set.json"
 RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
-BASE_URL = os.getenv("MEDICORTEX_URL", "http://homeserver:8000")
+BASE_URL = os.getenv("MEDICORTEX_URL", "http://localhost:8001")
 
 ABLATION_CONFIGS = {
     "full": {
@@ -80,10 +81,10 @@ async def query_with_timing(query: str, session_id: str) -> tuple[str, dict, flo
                     break
                 try:
                     event = json.loads(payload)
-                    if event.get("type") == "content":
+                    if event.get("type") == "response":
                         response_text += event.get("content", "")
                     elif event.get("type") == "metadata":
-                        metadata = event.get("data", {})
+                        metadata = event.get("content", {})
                 except json.JSONDecodeError:
                     continue
 
@@ -96,7 +97,7 @@ async def run_config(config_name: str, test_set: list) -> list:
     print(f"\n  Running {len(test_set)} queries for config '{config_name}'...")
     for i, item in enumerate(test_set):
         print(f"    [{i+1}/{len(test_set)}] {item['id']}")
-        session_id = f"ablation-{config_name}-{item['id']}-{int(time.time())}"
+        session_id = str(uuid.uuid4())
         try:
             response, metadata, elapsed = await query_with_timing(item["query"], session_id)
         except Exception as e:
@@ -116,7 +117,7 @@ async def run_config(config_name: str, test_set: list) -> list:
             "node_timings": node_timings,
             "total_node_latency_s": total_node_time,
             "wall_clock_latency_s": round(elapsed, 2),
-            "kb_available": metadata.get("retrieval", {}).get("kb_available"),
+            "kb_available": None,
         })
         await asyncio.sleep(1)
     return rows
