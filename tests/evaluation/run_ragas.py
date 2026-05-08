@@ -20,6 +20,7 @@ import json
 import os
 import sys
 import time
+import uuid
 import httpx
 from pathlib import Path
 
@@ -28,14 +29,18 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 try:
     from ragas import evaluate
     from ragas.metrics.collections import Faithfulness, ContextPrecision
-    from ragas.llms import llm_factory
     from datasets import Dataset
     import pandas as pd
 except ImportError:
     raise SystemExit("Run: pip install ragas datasets pandas")
 
-from openai import OpenAI
 from config import settings
+
+# Point RAGAS's built-in OpenAI client at Groq before any ragas imports resolve LLMs.
+# This is version-agnostic and avoids the llm_factory / LangchainLLMWrapper churn.
+os.environ.setdefault("OPENAI_API_KEY", settings.GROQ_API_KEY)
+os.environ.setdefault("OPENAI_API_BASE", "https://api.groq.com/openai/v1")
+os.environ.setdefault("RAGAS_DO_NOT_TRACK", "true")
 
 BASE_URL = os.getenv("MEDICORTEX_URL", "http://localhost:8001")
 TEST_SET_PATH = Path(__file__).parent.parent / "resources" / "eval_test_set.json"
@@ -43,16 +48,8 @@ RESULTS_DIR = Path(__file__).parent.parent.parent / "results"
 
 
 def _build_ragas_metrics():
-    """Build RAGAS metrics backed by Groq (OpenAI-compatible, no OpenAI key needed)."""
-    groq_client = OpenAI(
-        api_key=settings.GROQ_API_KEY,
-        base_url="https://api.groq.com/openai/v1",
-    )
-    llm = llm_factory("llama-3.3-70b-versatile", client=groq_client)
-    return [
-        Faithfulness(llm=llm),
-        ContextPrecision(llm=llm),
-    ]
+    """RAGAS metrics — LLM resolved from OPENAI_API_BASE env var (points to Groq)."""
+    return [Faithfulness(), ContextPrecision()]
 
 
 async def query_medicortex(query: str, session_id: str) -> tuple[str, dict]:
@@ -93,7 +90,7 @@ async def run_evaluation(test_set_path: Path, output_path: Path):
 
     for i, item in enumerate(test_set):
         print(f"  [{i+1}/{len(test_set)}] {item['id']}: {item['query'][:60]}...")
-        session_id = f"eval-{item['id']}-{int(time.time())}"
+        session_id = str(uuid.uuid4())
 
         try:
             response, metadata = await query_medicortex(item["query"], session_id)
