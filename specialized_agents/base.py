@@ -362,14 +362,15 @@ class A2ABaseAgent:
                 args = tc["args"]
 
                 # Surface the tool call as a thought for the UI accordion
-                arg_summary = next(iter(args.values()), "") if args else ""
-                emit_thought(
-                    f"**[{self.name.title()}]**: Calling `{tool_name}` "
-                    f"with `{str(arg_summary)[:120]}`"
-                )
+                emit_thought(self._describe_tool_call(tool_name, args))
                 logger.info(f"[{self.name}] Tool call: {tool_name}({args})")
 
-                observation = self._call_tool(tool_name, args, tool_context)
+                try:
+                    observation = self._call_tool(tool_name, args, tool_context)
+                except Exception as tool_err:
+                    logger.warning(f"[{self.name}] Tool {tool_name} failed: {tool_err}")
+                    observation = f"[Tool error — skipped]"
+
                 results.append((tool_name, observation))
 
                 # Extract titled sources from this observation
@@ -378,8 +379,7 @@ class A2ABaseAgent:
                         seen_urls.add(src["url"])
                         sources.append(src)
 
-                snippet = observation[:300] + "…" if len(observation) > 300 else observation
-                emit_thought(f"**Observation** (`{tool_name}`): {snippet}")
+                emit_thought(self._summarize_observation(tool_name, observation))
 
                 messages.append(ToolMessage(content=observation, tool_call_id=tc["id"]))
 
@@ -406,6 +406,55 @@ class A2ABaseAgent:
             low_context = True
 
         return results, sources, low_context, refined_query
+
+    def _describe_tool_call(self, tool_name: str, args: dict) -> str:
+        """Return a human-readable thought describing what a tool is about to do."""
+        arg_val = str(next(iter(args.values()), "")).strip()[:100] if args else ""
+        _DESCRIPTIONS = {
+            "crawl_diagnosis_articles": lambda v: f'Searching clinical resources for "{v}"',
+            "crawl_medical_articles":   lambda v: f'Searching medical literature for "{v}"',
+            "search_pubmed":            lambda v: f'Searching PubMed for "{v}"',
+            "recommend_drugs":          lambda v: f'Looking up drug recommendations for "{v}"',
+            "crawl_drug_interactions":  lambda v: f'Checking drug interactions for "{v}"',
+            "analyze_symptoms":         lambda v: f'Analyzing symptoms: "{v}"',
+            "extract_document_text":    lambda v: "Extracting and reading document content",
+            "analyze_report":           lambda v: "Analyzing the medical report",
+            "extract_image_findings":   lambda v: "Analyzing medical image for findings",
+            "get_patient_records":      lambda v: f'Retrieving records for "{v}"',
+            "analyze_patient_history":  lambda v: "Reviewing patient history",
+            "analyze_patient_vitals":   lambda v: "Reviewing patient vitals",
+            "review_patient_medications": lambda v: "Reviewing patient medications",
+        }
+        describe = _DESCRIPTIONS.get(tool_name)
+        if describe:
+            label = describe(arg_val)
+        else:
+            human_name = tool_name.replace("_", " ").capitalize()
+            label = f'{human_name}: "{arg_val}"' if arg_val else human_name
+        return f"**[{self.name.title()}]**: {label}"
+
+    def _summarize_observation(self, tool_name: str, observation: str) -> str:
+        """One-sentence LLM summary of a tool observation for the thinking accordion.
+        Falls back to a plain truncated snippet if the planner isn't ready or errors."""
+        planner = self._planner_cached
+        if planner is None or len(observation) < 60:
+            snippet = observation[:200] + "…" if len(observation) > 200 else observation
+            return f"**Result** (`{tool_name}`): {snippet}"
+        try:
+            prompt = (
+                f"Tool called: {tool_name}\n"
+                f"Tool output (truncated to 800 chars):\n{observation[:800]}\n\n"
+                "You are a medical AI reasoning through a query. Write ONE short internal "
+                "thought (max 25 words) reflecting what you just learned from this tool output "
+                "and how it helps you answer the question. "
+                "Write in first person, present tense, as if thinking aloud. No preamble, no quotes."
+            )
+            msg = planner.invoke([HumanMessage(content=prompt)])
+            summary = (msg.content or "").strip().splitlines()[0][:220]
+            return f"**[{self.name.title()}]**: {summary}"
+        except Exception:
+            snippet = observation[:200] + "…" if len(observation) > 200 else observation
+            return f"**[{self.name.title()}]**: Retrieved from `{tool_name}`: {snippet}"
 
     def _call_tool(
         self,

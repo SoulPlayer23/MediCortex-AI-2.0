@@ -628,6 +628,10 @@ async def node_retrieve_knowledge_v2(state: AgentState):
         if len(expanded_terms) >= _MAX_RERETRIEVAL_TERMS:
             break
 
+    if not expanded_terms:
+        logger.warning("Re-retrieval: no seed terms from agent feedback — skipping")
+        return {"retrieval_iteration": state.get("retrieval_iteration", 0) + 1}
+
     if session_id and session_id in ACTIVE_STREAMS:
         ACTIVE_STREAMS[session_id].append(
             f"Re-querying Knowledge Core: **{', '.join(expanded_terms[:3])}**{'...' if len(expanded_terms) > 3 else ''}"
@@ -673,36 +677,47 @@ def node_router(state: AgentState):
     routing_context = state.get("routing_context") or ""
 
     system_prompt = (
-        "You are the MediCortex Orchestrator. Your ONLY job is to select which specialist agents to call.\n\n"
-        "VALID KEYS — use ONLY these, never invent new ones:\n"
-        "- \"pubmed\"          → latest research, studies, evidence, guidelines\n"
-        "- \"diagnosis\"       → symptoms, differential diagnosis, clinical assessment\n"
-        "- \"report_analyzer\" → lab results, imaging reports, ECG, pathology, uploaded files\n"
-        "- \"patient\"         → specific named/identified patient history, records, vitals\n"
-        "- \"pharmacology\"    → drugs, medications, dosing, interactions, side effects, contraindications\n\n"
-        "RULES:\n"
-        "1. Return ONLY a valid JSON array containing keys from the list above — never invent new keys\n"
-        "2. Select 1-3 agents maximum\n"
-        "3. NEVER route to 'pubmed' unless research papers or evidence are explicitly requested\n"
-        "4. Symptoms/diagnosis only → [\"diagnosis\"]\n"
-        "5. Named drug question → [\"pharmacology\"]\n"
-        "6. Symptoms + treatment → [\"diagnosis\", \"pharmacology\"]\n"
-        "7. Uploaded file/report/image → always include \"report_analyzer\"\n\n"
-        "EXAMPLES:\n"
-        "\"What is the dose of amoxicillin for a child?\" → [\"pharmacology\"]\n"
-        "\"Patient has fever, cough and low SpO2\" → [\"diagnosis\"]\n"
-        "\"Interpret this CBC: WBC 14k, Hgb 8.2\" → [\"report_analyzer\"]\n"
-        "\"Latest trials on checkpoint inhibitors\" → [\"pubmed\"]\n"
-        "\"John Smith's last visit and his beta blocker dose\" → [\"patient\", \"pharmacology\"]\n"
-        "\"Is metformin safe in CKD stage 4?\" → [\"pharmacology\", \"pubmed\"]\n"
-        "\"45yo with chest pain and diaphoresis — diagnosis and treatment?\" → [\"diagnosis\", \"pharmacology\"]\n\n"
-        "FOLLOW-UP RESOLUTION — if the query uses pronouns (his/her/their/it/the patient/the drug), "
-        "resolve using the Recent Session Context below:\n"
-        "- Prior [patient] + asks about drugs → [\"pharmacology\"]\n"
-        "- Prior [patient] + asks about symptoms → [\"diagnosis\"]\n"
-        "- Prior [pharmacology] + asks about same drug → [\"pharmacology\"]\n"
-        "- Prior [diagnosis] + asks about treatment → [\"pharmacology\"]\n\n"
-        "Return ONLY the JSON array, no explanation, no prose."
+        "You are the MediCortex Orchestrator. Your ONLY job is to decide which specialist agents to call.\n\n"
+        "AGENTS — use ONLY these keys, never invent new ones:\n"
+        "- \"pubmed\"          → research papers, clinical trials, evidence-based guidelines\n"
+        "- \"diagnosis\"       → symptoms, differential diagnosis, pathophysiology, clinical assessment\n"
+        "- \"report_analyzer\" → lab results, imaging, ECG, pathology reports, uploaded files\n"
+        "- \"patient\"         → specific named/identified patient's history, records, vitals\n"
+        "- \"pharmacology\"    → drugs, dosing, interactions, side effects, contraindications, mechanisms\n\n"
+        "DECISION PRINCIPLE — use the minimum agents needed to fully answer the query:\n"
+        "- A query that touches only ONE domain → single agent.\n"
+        "- A query that genuinely spans multiple domains → multiple agents (max 3).\n"
+        "- Ask: 'Would a complete answer require knowledge from more than one specialist?' "
+        "If yes, include all relevant agents. If no, use one.\n\n"
+        "HARD RULES:\n"
+        "1. Return ONLY a valid JSON array of agent keys — no prose, no explanation.\n"
+        "2. Never route to 'pubmed' unless the user explicitly asks for research, trials, or guidelines.\n"
+        "3. Always include 'report_analyzer' when files or images are attached.\n\n"
+        "FEW-SHOT EXAMPLES (study the reasoning pattern):\n"
+        "\"Side effects of metoprolol\" → [\"pharmacology\"]\n"
+        "  # Pure drug question — one agent is enough.\n\n"
+        "\"Patient has chest pain and sweating\" → [\"diagnosis\"]\n"
+        "  # Pure symptom/assessment question — one agent is enough.\n\n"
+        "\"What drugs treat hypertension and what are their side effects?\" → [\"diagnosis\", \"pharmacology\"]\n"
+        "  # Needs clinical context of the condition (diagnosis) AND drug details (pharmacology).\n\n"
+        "\"Is metformin safe for someone with CKD?\" → [\"pharmacology\", \"pubmed\"]\n"
+        "  # Drug safety in a specific condition context + guideline evidence requested implicitly.\n\n"
+        "\"Interpret this CBC — WBC 14k, Hgb 8.2\" → [\"report_analyzer\"]\n"
+        "  # Uploaded/pasted lab report — report_analyzer handles this alone.\n\n"
+        "\"45yo with fever and cough — what's the diagnosis and what should I prescribe?\" → [\"diagnosis\", \"pharmacology\"]\n"
+        "  # Spans two domains: differential (diagnosis) + treatment selection (pharmacology).\n\n"
+        "\"John's last visit records and his current beta blocker dose\" → [\"patient\", \"pharmacology\"]\n"
+        "  # Named patient records (patient) + drug info (pharmacology).\n\n"
+        "\"Latest RCTs on SGLT2 inhibitors in heart failure\" → [\"pubmed\"]\n"
+        "  # Explicit research/trial request — pubmed only.\n\n"
+        "\"What is sepsis and how is it managed in ICU?\" → [\"diagnosis\", \"pharmacology\"]\n"
+        "  # Condition overview (diagnosis) + management/treatment (pharmacology).\n\n"
+        "FOLLOW-UP RESOLUTION — when the query uses pronouns (his/her/their/the patient/the drug/it), "
+        "resolve the referent using the Recent Session Context and apply the same decision principle:\n"
+        "- Prior [patient] turn + asks about drugs → [\"pharmacology\"]\n"
+        "- Prior [diagnosis] turn + asks about treatment → [\"pharmacology\"] or [\"diagnosis\", \"pharmacology\"]\n"
+        "- Prior [pharmacology] turn + asks about same drug → [\"pharmacology\"]\n\n"
+        "Return ONLY the JSON array."
     )
 
     file_urls = state.get("file_urls") or []
@@ -857,14 +872,14 @@ def make_agent_node(agent_key: str):
             if response.error:
                 logger.error(f"Agent {agent_key} returned error", error=response.error)
                 return {
-                    "agent_outputs": [f"## {agent_key.title()} Agent Error\n{response.error}"],
+                    "agent_outputs": [response.error],
                     "agent_thoughts": thoughts,
                     "agents_used": [agent_key],
                 }
 
             output = response.output if response.output else "No output generated."
             result: dict = {
-                "agent_outputs": [f"## {agent_key.title()} Agent Response\n{output}"],
+                "agent_outputs": [output],
                 "agent_thoughts": thoughts,
                 "agents_used": [agent_key],
                 "agent_sources": response.sources if response.sources else [],
@@ -883,7 +898,7 @@ def make_agent_node(agent_key: str):
         except Exception as e:
             logger.error(f"Orchestrator failed to call agent {agent_key}", error=str(e))
             return {
-                "agent_outputs": [f"## {agent_key.title()} Agent System Error\n{str(e)}"],
+                "agent_outputs": [f"Something went wrong while processing your request. Please try again."],
                 "agent_thoughts": [f"**[{agent_key.title()}]**: System Error: {str(e)}"],
                 "agents_used": [agent_key],
             }
@@ -990,7 +1005,7 @@ async def node_aggregator_with_reretrieval(state: AgentState):
                     )
                     if response.output and not response.error:
                         logger.info(f"Re-run agent {agent_key} succeeded after re-retrieval")
-                        return f"## {agent_key.title()} Agent Response (re-retrieved)\n{response.output}"
+                        return response.output
                 except Exception as e:
                     logger.warning(f"Re-run agent {agent_key} failed after re-retrieval", error=str(e))
                 return None
@@ -1011,10 +1026,7 @@ async def node_aggregator_with_reretrieval(state: AgentState):
         "- Do NOT open with a declaration like 'Okay, here\\'s the Markdown response' or "
         "'I\\'ve formatted the response as requested' — just write the response.\n\n"
         "HEADING RULES:\n"
-        "- Do NOT preserve or repeat the internal section labels from the raw reports (e.g. "
-        "'Pharmacology Agent Response', 'Diagnosis Agent Response', 'PubMed Agent Response', "
-        "'Report Analyzer Agent Response', 'Patient Agent Response', or any '## X Agent Response' pattern). "
-        "These are internal pipeline labels — strip them out entirely.\n"
+        "- Do NOT add any heading that names an agent (e.g. 'Pharmacology', 'Diagnosis Agent', etc.).\n"
         "- Do NOT open the response with a generic heading like 'Medical Agent Reports', "
         "'Medical Agent Reports on [Topic]', 'Comprehensive Clinical Guidance', 'Medical Agent Reports Summary', or any similar variation.\n"
         "- If a heading is needed, use a concise topic-specific heading (e.g. 'Hypertension: Symptoms & First-Line Treatment'). "
