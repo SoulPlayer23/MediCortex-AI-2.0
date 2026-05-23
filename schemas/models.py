@@ -43,6 +43,7 @@ class ChatResponse(BaseModel):
 class UploadResponse(BaseModel):
     url: str
     filename: str
+    content_type: str
 
 class HealthResponse(BaseModel):
     status: str

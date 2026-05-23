@@ -118,6 +118,7 @@ const ChatArea = ({
                 const messages = data.map((msg: any) => ({
                     ...msg,
                     metadata: msg.message_metadata,
+                    attachments: msg.attachments ?? [],
                 }));
                 updateSession(id, () => ({ messages, isLoading: false }));
             }

@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatArea from './components/ChatArea';
+import Dashboard from './pages/Dashboard';
 import type { SessionState } from './types';
 
 function App() {
@@ -42,6 +43,10 @@ function App() {
     currentSessionIdRef.current = id;
     setCurrentSessionId(id);
   }, []);
+
+  if (window.location.pathname === '/dashboard') {
+    return <Dashboard />;
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-[#212121]">

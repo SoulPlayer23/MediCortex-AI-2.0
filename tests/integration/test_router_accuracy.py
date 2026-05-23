@@ -6,10 +6,11 @@ Tests node_router against the 50-query ground truth set.
 node_router uses the module-level `llm` singleton (None until lifespan() runs).
 Tests patch `orchestrator.llm` directly with controlled mock responses.
 """
+import asyncio
 import json
 import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, AsyncMock, MagicMock
 from langchain_core.messages import AIMessage
 
 
@@ -47,14 +48,15 @@ def _base_state(query: str, file_urls: list = None, retrieval_ambiguous: bool = 
 
 
 def _make_llm_mock(response_content: str):
-    """Return a mock LLM whose invoke().content is response_content."""
+    """Return a mock LLM whose ainvoke().content is response_content."""
     mock = MagicMock()
+    mock.ainvoke = AsyncMock(return_value=MagicMock(content=response_content))
     mock.invoke.return_value = MagicMock(content=response_content)
     return mock
 
 
-def _run_router(query: str, agents_json: list, file_urls: list = None,
-                retrieval_ambiguous: bool = False) -> dict:
+async def _run_router(query: str, agents_json: list, file_urls: list = None,
+                      retrieval_ambiguous: bool = False) -> dict:
     """Run node_router with a mocked LLM returning agents_json."""
     from orchestrator import node_router
     state = _base_state(query, file_urls, retrieval_ambiguous)
@@ -62,7 +64,7 @@ def _run_router(query: str, agents_json: list, file_urls: list = None,
     with patch("orchestrator.llm", _make_llm_mock(json.dumps(agents_json))):
         with patch("orchestrator.settings") as mock_settings:
             mock_settings.MAX_CONCURRENT_AGENTS = 3
-            return node_router(state)
+            return await node_router(state)
 
 
 def _extract_routed_agents(result: dict) -> list:
@@ -105,15 +107,14 @@ class TestRouteGroundTruth:
     @pytest.mark.parametrize("entry,idx", [
         (e, i) for i, e in enumerate(_GROUND_TRUTH)
     ], ids=[f"ROUTE-{str(i+1).zfill(2)}" for i in range(len(_GROUND_TRUTH))])
-    def test_routing_accuracy(self, entry, idx):
+    async def test_routing_accuracy(self, entry, idx):
         """Mock LLM returns expected agents; verify node_router parses and emits them."""
         query = entry["query"]
         expected = set(entry["expected_agents"])
 
-        result = _run_router(query, list(expected))
+        result = await _run_router(query, list(expected))
         routed = _extract_routed_agents(result)
 
-        # If clarification path triggered (retrieval_ambiguous=True), skip agent check
         if result.get("clarification_question"):
             pytest.skip("Clarification path triggered — not an agent routing test")
 
@@ -132,9 +133,8 @@ class TestRouteGroundTruth:
 class TestRouteCap:
     """ROUTE-CAP — Router caps output to MAX_CONCURRENT_AGENTS."""
 
-    def test_cap_enforced(self):
-        # LLM returns 5 agents — route_decision should cap to ≤ 3
-        result = _run_router(
+    async def test_cap_enforced(self):
+        result = await _run_router(
             "Complex query",
             ["pubmed", "diagnosis", "report_analyzer", "patient", "pharmacology"],
         )
@@ -159,14 +159,14 @@ class TestRouteMalformed:
         "{'agents': ['diagnosis']}",
         "diagnosis pharmacology",
     ])
-    def test_malformed_fallback(self, bad_output):
+    async def test_malformed_fallback(self, bad_output):
         from orchestrator import node_router
         state = _base_state("What is aspirin used for?")
 
         with patch("orchestrator.llm", _make_llm_mock(bad_output)):
             with patch("orchestrator.settings") as mock_settings:
                 mock_settings.MAX_CONCURRENT_AGENTS = 3
-                result = node_router(state)
+                result = await node_router(state)
 
         # No crash — must return a dict
         assert isinstance(result, dict)
@@ -191,8 +191,8 @@ class TestRouteMalformed:
 class TestRouteUnknown:
     """ROUTE-UNKNOWN — Unknown agent names in LLM output are filtered out."""
 
-    def test_unknown_agent_filtered(self):
-        result = _run_router(
+    async def test_unknown_agent_filtered(self):
+        result = await _run_router(
             "What is the diagnosis?",
             ["diagnosis", "unknown_agent_xyz"],
         )
@@ -210,8 +210,8 @@ class TestRouteUnknown:
 class TestRouteFileUrls:
     """When file_urls is non-empty, report_analyzer must appear in the route."""
 
-    def test_file_url_includes_report_analyzer(self):
-        result = _run_router(
+    async def test_file_url_includes_report_analyzer(self):
+        result = await _run_router(
             "What does this X-ray show?",
             ["report_analyzer"],
             file_urls=["http://minio/bucket/xray.pdf"],

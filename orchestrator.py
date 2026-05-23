@@ -189,11 +189,115 @@ class AgentState(TypedDict):
     retrieval_ambiguous: bool             # True when no entities extracted from query
     clarification_question: Optional[str] # set by node_router when query is too vague to answer
     re_retrieval_skipped: bool            # True when re-retrieval KB also returned empty — agent re-run skipped
+    # OBS-1 — per-node latency map (ms); reducer merges dicts across all nodes
+    node_timings: Annotated[Dict[str, float], lambda a, b: {**(a or {}), **(b or {})}]
+    # OBS-1 — retrieval stats populated by node_retrieve_knowledge
+    retrieval_stats: Optional[Dict]
+    # OBS-1 — judge token usage from node_reviewer
+    judge_token_usage: Optional[Dict]
 
 # ==========================================
 # ⚡ SSE STREAMING SHARED STATE
 # ==========================================
-ACTIVE_STREAMS = {}
+
+class RedisThoughtQueue:
+    """OPS-3: Multi-worker-safe thought queue backed by a Redis list.
+
+    Exposes the same list-like interface (append / len / getitem) used by
+    the SSE poller and KB nodes so no call-site changes are needed.
+    Falls back to an in-process list when Redis is unavailable, preserving
+    the existing single-worker behaviour.
+
+    Redis key: streams:{session_id}  (TTL = 3600s)
+    """
+
+    _TTL = 3600
+
+    def __init__(self, session_id: str, redis_client=None):
+        self._session_id = session_id
+        self._key = f"streams:{session_id}"
+        self._redis = redis_client
+        self._fallback: list = []
+
+    # ── Write (called from agent thread-pool — sync is fine) ──────────
+    def append(self, thought: str) -> None:
+        if self._redis:
+            try:
+                self._redis.rpush(self._key, thought)
+                self._redis.expire(self._key, self._TTL)
+                return
+            except Exception:
+                pass
+        self._fallback.append(thought)
+
+    # ── Read (called from async SSE poller via len/index) ─────────────
+    def __len__(self) -> int:
+        if self._redis:
+            try:
+                return int(self._redis.llen(self._key) or 0)
+            except Exception:
+                pass
+        return len(self._fallback)
+
+    def __getitem__(self, idx: int) -> str:
+        if self._redis:
+            try:
+                val = self._redis.lindex(self._key, idx)
+                if val is not None:
+                    return val
+            except Exception:
+                pass
+        return self._fallback[idx]
+
+    # ── Cleanup ───────────────────────────────────────────────────────
+    def delete(self) -> None:
+        if self._redis:
+            try:
+                self._redis.delete(self._key)
+                return
+            except Exception:
+                pass
+        self._fallback.clear()
+
+    # ── Snapshot (for DB persistence) ─────────────────────────────────
+    def snapshot(self) -> list:
+        if self._redis:
+            try:
+                items = self._redis.lrange(self._key, 0, -1)
+                if items is not None:
+                    return list(items)
+            except Exception:
+                pass
+        return list(self._fallback)
+
+
+def _make_thought_queue(session_id: str) -> RedisThoughtQueue:
+    """Create a RedisThoughtQueue, sharing the orchestrator's Redis connection."""
+    try:
+        if getattr(settings, "REDIS_URL", None):
+            import redis as _redis_mod
+            socket_timeout = getattr(settings, "REDIS_SOCKET_TIMEOUT", 2)
+            rc = _redis_mod.from_url(
+                settings.REDIS_URL,
+                decode_responses=True,
+                socket_timeout=socket_timeout,
+                socket_connect_timeout=socket_timeout,
+                retry_on_timeout=False,
+                retry_on_error=[],
+            )
+            rc.ping()
+            return RedisThoughtQueue(session_id, rc)
+    except Exception:
+        pass
+    return RedisThoughtQueue(session_id, None)
+
+
+# ACTIVE_STREAMS: maps session_id → RedisThoughtQueue (or plain list fallback).
+# OPS-3: each queue is now multi-worker-safe via Redis when available.
+ACTIVE_STREAMS: dict = {}
+
+# OPS-8: track last real request time for activity-aware keepwarm.
+_last_request_at: float = 0.0
 
 # ==========================================
 # 🛠️ TOOLS & LLM
@@ -315,14 +419,14 @@ async def node_scope_guard(state: AgentState):
     return {}
 
 
-def node_analyze_privacy(state: AgentState):
+async def node_analyze_privacy(state: AgentState):
     _t0_node = _time.monotonic()
     import uuid as _uuid
     trace_id = state.get("trace_id") or str(_uuid.uuid4())
-    # A2A §5.1 — Bind trace_id to structured log context for full-chain tracing
     structlog.contextvars.bind_contextvars(trace_id=trace_id)
     logger.info("NODE: ANALYZE PRIVACY", trace_id=trace_id)
-    redacted, mapping = privacy_manager.redact_pii(state['input'])
+    loop = asyncio.get_event_loop()
+    redacted, mapping = await loop.run_in_executor(None, privacy_manager.redact_pii, state['input'])
     logger.info("node_elapsed_ms", node="analyze_privacy", elapsed_ms=round((_time.monotonic() - _t0_node) * 1000))
     return {
         "trace_id": trace_id,
@@ -555,12 +659,19 @@ async def node_retrieve_knowledge(state: AgentState):
     if not context_sections:
         context_sections = [f"[KB: {', '.join(entities)}]\n{_KB_EMPTY_SENTINEL}"]
 
-    logger.info("node_elapsed_ms", node="retrieve_knowledge", elapsed_ms=round((_time.monotonic() - _t0_node) * 1000))
+    _elapsed_retrieve = round((_time.monotonic() - _t0_node) * 1000)
+    logger.info("node_elapsed_ms", node="retrieve_knowledge", elapsed_ms=_elapsed_retrieve)
     return {
         "context": context_sections,
         "retrieval_ambiguous": retrieval_ambiguous,
         "retrieval_iteration": state.get("retrieval_iteration", 0),
         "retrieval_feedback": [],
+        "retrieval_stats": {
+            "entities_extracted": entities,
+            "raw_terms_count": len(expanded_terms),
+            "kb_available": bool(medical_engine),
+        },
+        "node_timings": {"retrieve_knowledge": _elapsed_retrieve},
     }
 
 
@@ -669,7 +780,7 @@ async def node_retrieve_knowledge_v2(state: AgentState):
         "re_retrieval_skipped": False,
     }
 
-def node_router(state: AgentState):
+async def node_router(state: AgentState):
     _t0_node = _time.monotonic()
     logger.info("NODE: ROUTER")
     input_text = state['redacted_input']
@@ -736,7 +847,7 @@ def node_router(state: AgentState):
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
     
     try:
-        response = llm_invoke(llm, messages, role="router").content
+        response = (await llm_ainvoke(llm, messages, role="router")).content
         clean_response = response.replace("```json", "").replace("```", "").strip()
         clean_response = clean_response.replace("'", '"')
         try:
@@ -775,10 +886,10 @@ def node_router(state: AgentState):
             "Output only the question, no preamble."
         )
         try:
-            clarification_q = llm_invoke(llm, [
+            clarification_q = (await llm_ainvoke(llm, [
                 SystemMessage(content=clarification_prompt),
                 HumanMessage(content=f"User query: {input_text}"),
-            ], role="clarification").content.strip()
+            ], role="clarification")).content.strip()
             logger.info("Clarification question generated", question=clarification_q)
             return {
                 "messages": [AIMessage(content='["__clarify__"]')],
@@ -791,7 +902,7 @@ def node_router(state: AgentState):
     return {"messages": [AIMessage(content=str(routes))]}
 
 def make_agent_node(agent_key: str):
-    def _node(state: AgentState, config: RunnableConfig):
+    async def _node(state: AgentState, config: RunnableConfig):
         logger.info(f"NODE: AGENT [{agent_key.upper()}]")
         agent_executor = AGENT_REGISTRY.get(agent_key)
         if not agent_executor:
@@ -861,9 +972,12 @@ def make_agent_node(agent_key: str):
             live_thoughts = ACTIVE_STREAMS.get(session_id_str, [])
             envelope.payload["live_thoughts_queue"] = live_thoughts
             
-            # Call Agent via Process
+            # OPS-2: offload blocking agent.process() to thread pool so the
+            # event loop stays free for concurrent requests.
             _t0_agent = _time.monotonic()
-            response = agent_executor.process(envelope)
+            response = await asyncio.get_event_loop().run_in_executor(
+                None, agent_executor.process, envelope
+            )
             logger.info("agent_call", agent=agent_key, rtt_ms=round((_time.monotonic() - _t0_agent) * 1000))
             
             # Capture thinking steps (already prefixed by emit_thought in base.py)
@@ -1081,7 +1195,7 @@ def _parse_references(text: str) -> tuple[str, list[dict]]:
     return body, sources
 
 
-def node_reviewer(state: AgentState):
+async def node_reviewer(state: AgentState):
     """
     A2A §5.2 — Model-as-Judge evaluation node.
 
@@ -1175,21 +1289,28 @@ Criteria to check:
 Reply with ONLY a JSON object in this exact format, no other text:
 {{"score": <1-5>, "reason": "<one sentence referencing the query above>", "confidence": "<0-100>%"}}"""
 
-    def _call_groq(model_name: str) -> dict:
+    async def _call_groq(model_name: str) -> tuple[dict, dict]:
         judge_llm = ChatGroq(
             model=model_name,
             api_key=settings.GROQ_API_KEY,
             temperature=0,
             max_tokens=100,
         )
-        result = llm_invoke(judge_llm, [HumanMessage(content=judge_prompt)], role="reviewer").content
-        return json.loads(result.strip())
+        raw = await llm_ainvoke(judge_llm, [HumanMessage(content=judge_prompt)], role="reviewer")
+        usage = {}
+        if hasattr(raw, "usage_metadata") and raw.usage_metadata:
+            usage = {
+                "prompt_tokens": raw.usage_metadata.get("input_tokens", 0),
+                "completion_tokens": raw.usage_metadata.get("output_tokens", 0),
+            }
+        return json.loads(raw.content.strip()), usage
 
     # ── Call judge with fallback ──────────────────────────────────────
     judge_result = None
+    judge_usage: dict = {}
     for model in [settings.JUDGE_MODEL, settings.JUDGE_FALLBACK_MODEL]:
         try:
-            judge_result = _call_groq(model)
+            judge_result, judge_usage = await _call_groq(model)
             logger.info("reviewer_complete", model=model, score=judge_result.get("score"),
                         reason=judge_result.get("reason"))
             break
@@ -1205,7 +1326,14 @@ Reply with ONLY a JSON object in this exact format, no other text:
     confidence = judge_result.get("confidence", "95%")
 
     # Store metadata on state so we can pick it up
-    return_payload: dict = {"judge_score": score, "judge_reason": reason, "judge_confidence": confidence}
+    _elapsed_reviewer = round((_time.monotonic() - _t0_node) * 1000)
+    return_payload: dict = {
+        "judge_score": score,
+        "judge_reason": reason,
+        "judge_confidence": confidence,
+        "judge_token_usage": judge_usage,
+        "node_timings": {"reviewer": _elapsed_reviewer},
+    }
 
     # ── Append clinical disclaimer if quality is low ──────────────────
     current_output = state.get("final_output", "")
@@ -1224,12 +1352,13 @@ Reply with ONLY a JSON object in this exact format, no other text:
     return return_payload
 
 
-def node_restore_privacy(state: AgentState):
+async def node_restore_privacy(state: AgentState):
     _t0_node = _time.monotonic()
     logger.info("NODE: RESTORE PRIVACY")
     raw_output = state.get("final_output", "")
     mapping = state.get("pii_mapping", {})
-    restored = privacy_manager.restore_privacy(raw_output, mapping)
+    loop = asyncio.get_event_loop()
+    restored = await loop.run_in_executor(None, privacy_manager.restore_privacy, raw_output, mapping)
     logger.info("node_elapsed_ms", node="restore_privacy", elapsed_ms=round((_time.monotonic() - _t0_node) * 1000))
     return {"final_output": restored}
 
@@ -1383,6 +1512,28 @@ async def _fire_medgemma_warmup() -> None:
         logger.warning("MedGemma on-demand warmup ping failed", error=str(e))
 
 
+async def _keepwarm_loop() -> None:
+    """OPS-8: activity-aware RunPod keepwarm.
+
+    Pings every 8s while within 5 min of the last real request; otherwise
+    sleeps 300s before rechecking. Avoids burning RunPod credits during idle
+    periods while keeping the worker hot immediately after user activity.
+    """
+    import time as _time_mod
+    while True:
+        if not settings.MEDGEMMA_KEEPWARM_URL:
+            await asyncio.sleep(300)
+            continue
+        idle_secs = _time_mod.time() - _last_request_at
+        if idle_secs < 300:
+            await _fire_medgemma_warmup()
+            logger.debug("keepwarm: worker hot", idle_secs=round(idle_secs))
+            await asyncio.sleep(8)
+        else:
+            logger.debug("keepwarm: idle, skipping")
+            await asyncio.sleep(300)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global medical_engine, privacy_manager, llm, extractor_llm, orchestrator_graph
@@ -1475,18 +1626,32 @@ async def lifespan(app: FastAPI):
     orchestrator_graph = workflow.compile()
     logger.info("Orchestrator Graph Compiled", status="success")
 
-    # ── OPS-3: enforce single-worker invariant (ACTIVE_STREAMS is process-local) ─
+    # ── OPS-3: log thought-streaming backend in use ───────────────────
     web_concurrency_env = os.environ.get("WEB_CONCURRENCY", str(settings.WEB_CONCURRENCY))
+    _redis_available = False
     try:
-        if int(web_concurrency_env) != 1:
-            logger.warning(
-                "ACTIVE_STREAMS is process-local — running with WEB_CONCURRENCY>1 will "
-                "drop SSE thoughts from sibling workers. Use --workers 1 until "
-                "Redis-backed streams are wired (see Todo.md OPS-3).",
-                web_concurrency=web_concurrency_env,
-            )
-    except ValueError:
+        if getattr(settings, "REDIS_URL", None):
+            import redis as _r
+            _st = getattr(settings, "REDIS_SOCKET_TIMEOUT", 2)
+            _rc = _r.from_url(settings.REDIS_URL, socket_timeout=_st,
+                              socket_connect_timeout=_st,
+                              retry_on_timeout=False, retry_on_error=[])
+            _rc.ping()
+            _redis_available = True
+    except Exception:
         pass
+
+    if _redis_available:
+        logger.info("OPS-3: thought streaming via Redis — multi-worker safe")
+    else:
+        logger.warning(
+            "OPS-3: Redis unavailable — thought streaming is process-local. "
+            "Multi-worker scale-out will drop SSE thoughts from sibling workers.",
+            web_concurrency=web_concurrency_env,
+        )
+
+    # ── OPS-8: start activity-aware keepwarm background loop ──────────
+    _asyncio.create_task(_keepwarm_loop())
 
     # ── Ready ──────────────────────────────────────────────────────────
     logger.info("Starting Orchestrator Server", app_name=settings.APP_NAME)
@@ -1497,6 +1662,10 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down")
 
 app = FastAPI(title=settings.APP_NAME, lifespan=lifespan)
+
+# OBS-1: observability dashboard endpoints
+from routes.dashboard import router as dashboard_router
+app.include_router(dashboard_router, prefix="/api")
 
 # OPS-5: register slowapi limiter + 429 handler if available.
 if _SLOWAPI_AVAILABLE and limiter is not None:
@@ -1529,6 +1698,11 @@ async def chat_stream_endpoint(request: Request, body: ChatRequest, db: AsyncSes
     Streaming chat endpoint for Server-Sent Events (SSE).
     Sends 'thought' events for agent reasoning and 'response' event for final output.
     """
+    # OPS-8: mark request time for activity-aware keepwarm
+    global _last_request_at
+    import time as _time_req
+    _last_request_at = _time_req.time()
+
     # BUG-5: track whether the LangGraph result was fully computed and not yet
     # persisted, so the finally block can still save the assistant message
     # even if the SSE generator was cancelled by a client disconnect.
@@ -1585,20 +1759,25 @@ async def chat_stream_endpoint(request: Request, body: ChatRequest, db: AsyncSes
             # 5. Stream Orchestrator Events
             agent_thoughts = []
             final_output = ""
+            request_started_at = _time.monotonic()
             msg_metadata = {
                 "llm_used": "MedGemma (via HF) / gemma4:31b-cloud Router",
                 "judge_score": None,
                 "judge_reason": None,
                 "judge_confidence": None,
                 "agents_used": [],
+                "node_timings": {},
+                "request_elapsed_ms": None,
+                "retrieval": None,
+                "token_usage": None,
             }
 
 
 
             import asyncio
 
-            # Shared mutable state for the stream
-            live_thoughts = []
+            # OPS-3: Redis-backed thought queue (falls back to in-process list)
+            live_thoughts = _make_thought_queue(str(session_id))
             ACTIVE_STREAMS[str(session_id)] = live_thoughts
 
             final_output_container = {}
@@ -1621,12 +1800,17 @@ async def chat_stream_endpoint(request: Request, body: ChatRequest, db: AsyncSes
                             "retrieval_ambiguous": False,
                             "clarification_question": None,
                             "re_retrieval_skipped": False,
+                            "node_timings": {},
+                            "pii_mapping": {},
+                            "redacted_input": "",
+                            "context": [],
+                            "final_output": "",
                         }
                     )
                     final_output_container["result"] = result
                 except Exception as e:
                     final_output_container["error"] = e
-                    
+
             # Start graph execution in the background
             graph_task = asyncio.create_task(run_graph())
             
@@ -1669,6 +1853,14 @@ async def chat_stream_endpoint(request: Request, body: ChatRequest, db: AsyncSes
             msg_metadata["retrieval_feedback"] = graph_output.get("retrieval_feedback", [])
             msg_metadata["retrieval_ambiguous"] = graph_output.get("retrieval_ambiguous", False)
             msg_metadata["is_clarification"] = bool(graph_output.get("clarification_question"))
+
+            # OBS-1 observability fields
+            msg_metadata["node_timings"] = graph_output.get("node_timings") or {}
+            msg_metadata["request_elapsed_ms"] = round((_time.monotonic() - request_started_at) * 1000)
+            if graph_output.get("retrieval_stats"):
+                msg_metadata["retrieval"] = graph_output["retrieval_stats"]
+            if graph_output.get("judge_token_usage"):
+                msg_metadata["token_usage"] = graph_output["judge_token_usage"]
 
             # Extract references section (only present when agents cited source URLs inline)
             # and merge with tool-observation URLs collected during agent ReAct loops.
@@ -1726,6 +1918,7 @@ async def chat_stream_endpoint(request: Request, body: ChatRequest, db: AsyncSes
         finally:
             sid = session_id or persistence_state.get("session_id")
             if sid and str(sid) in ACTIVE_STREAMS:
+                ACTIVE_STREAMS[str(sid)].delete()
                 del ACTIVE_STREAMS[str(sid)]
 
             # BUG-5: persist the assistant message even on disconnect, as long
@@ -1761,6 +1954,11 @@ async def chat_endpoint(request: Request, body: ChatRequest, db: AsyncSession = 
     """
     Legacy non-streaming chat endpoint.
     """
+    # OPS-8: mark request time for activity-aware keepwarm
+    global _last_request_at
+    import time as _time_req
+    _last_request_at = _time_req.time()
+
     # DEPLOY-2: warm MedGemma in parallel while KB retrieval pipeline runs
     if settings.MEDGEMMA_KEEPWARM_URL:
         asyncio.create_task(_fire_medgemma_warmup())
@@ -1809,6 +2007,11 @@ async def chat_endpoint(request: Request, body: ChatRequest, db: AsyncSession = 
             "retrieval_ambiguous": False,
             "clarification_question": None,
             "re_retrieval_skipped": False,
+            "node_timings": {},
+            "pii_mapping": {},
+            "redacted_input": "",
+            "context": [],
+            "final_output": "",
         })
         response_text = result.get("final_output")
         agent_thinking = result.get("agent_thoughts", [])
@@ -1867,7 +2070,7 @@ async def upload_file(request: Request, file: UploadFile = File(...)):
         url = await minio_service.upload_file(content, file.filename, file.content_type)
         if not url:
             raise HTTPException(status_code=500, detail="Upload failed")
-        return UploadResponse(url=url, filename=file.filename)
+        return UploadResponse(url=url, filename=file.filename, content_type=file.content_type or "")
     except HTTPException:
         raise
     except Exception as e:

@@ -78,6 +78,8 @@ class A2ABaseAgent:
                     decode_responses=True,
                     socket_timeout=socket_timeout,
                     socket_connect_timeout=socket_timeout,
+                    retry_on_timeout=False,
+                    retry_on_error=[],
                 )
                 self._redis_cache.ping()
                 logger.info(f"[{self.name}] Connected to Redis cache.")

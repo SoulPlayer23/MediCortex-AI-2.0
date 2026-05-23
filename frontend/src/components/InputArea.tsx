@@ -15,6 +15,7 @@ const InputArea = ({ onSend, isLoading, isEmptyState }: InputAreaProps) => {
     const [input, setInput] = useState('');
     const [attachments, setAttachments] = useState<any[]>([]);
     const [isUploading, setIsUploading] = useState(false);
+    const [uploadError, setUploadError] = useState<string | null>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -32,6 +33,7 @@ const InputArea = ({ onSend, isLoading, isEmptyState }: InputAreaProps) => {
 
             const formData = new FormData();
             formData.append('file', file);
+            setUploadError(null);
 
             try {
                 const res = await fetch(`${API_BASE}/upload`, {
@@ -41,13 +43,14 @@ const InputArea = ({ onSend, isLoading, isEmptyState }: InputAreaProps) => {
 
                 if (res.ok) {
                     const data = await res.json();
-                    setAttachments(prev => [...prev, {
-                        ...data,
-                        type: file.type
-                    }]);
+                    setAttachments(prev => [...prev, data]);
+                } else {
+                    const err = await res.json().catch(() => ({}));
+                    setUploadError(err.detail || `Upload failed (${res.status})`);
                 }
             } catch (error) {
                 console.error("Upload failed", error);
+                setUploadError("Upload failed — check your connection.");
             } finally {
                 setIsUploading(false);
                 if (fileInputRef.current) fileInputRef.current.value = '';
@@ -84,6 +87,11 @@ const InputArea = ({ onSend, isLoading, isEmptyState }: InputAreaProps) => {
         )}>
             <div className={clsx("mx-auto", isEmptyState ? "w-full" : "max-w-3xl")}>
                 <div className="relative flex flex-col w-full bg-zinc-800/70 backdrop-blur-xl rounded-[26px] shadow-2xl border border-white/10 ring-1 ring-black/5 overflow-hidden transition-all focus-within:ring-white/10 focus-within:bg-zinc-800/90">
+
+                    {/* Upload error */}
+                    {uploadError && (
+                        <div className="px-4 pt-3 text-xs text-red-400">{uploadError}</div>
+                    )}
 
                     {/* Attachments Preview */}
                     {attachments.length > 0 && (

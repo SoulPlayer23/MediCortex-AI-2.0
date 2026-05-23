@@ -1,0 +1,857 @@
+[
+  {
+    "question": "What are the latest RCT findings on SGLT2 inhibitors for heart failure with reduced ejection fraction?",
+    "answer": "# Heart Failure with Reduced Ejection Fraction (HFrEF): Clinical Overview\n\nHeart failure with reduced ejection fraction (HFrEF) is a critical condition characterized by the left ventricle's inability to pump blood effectively. Management focuses on improving patient outcomes, reducing hospitalizations, and enhancing overall quality of life.\n\n### Evidence-Based Pharmacological Interventions\nClinical research and Randomized Controlled Trials (RCTs) have established the efficacy of several drug classes in reducing mortality and hospitalizations:\n\n*   **ARNIs (Angiotensin Receptor-Neprilysin Inhibitors):** Sacubitril/valsartan has demonstrated a reduction in cardiovascular death and heart failure hospitalizations (e.g., *PARADIGM-HF trial*).\n*   **SGLT2 Inhibitors:** Dapagliflozin has been shown to reduce cardiovascular death and heart failure hospitalizations (e.g., *EMP-REG OUTCOME trial*).\n*   **Beta-Blockers:** Carvedilol has shown significant benefits in reducing mortality and hospitalizations (e.g., *MERIT-HF trial*).\n*   **MRAs (Mineralocorticoid Receptor Antagonists):** Spironolactone has been proven to reduce mortality and hospitalizations (e.g., *DIG trial*).\n*   **ACE Inhibitors:** Enalapril has demonstrated reductions in mortality and hospitalizations (e.g., *PEP-CHF trial*).\n*   **ARBs (Angiotensin II Receptor Blockers):** Candesartan has shown benefits in reducing mortality and hospitalizations (e.g., *CHARM-Alternative trial*).\n\n### Clinical Management Guidance\nThe standard of care for HFrEF typically involves a multi-drug regimen. Key considerations include:\n\n*   **Combination Therapy:** Effective management usually requires a combination of ACE inhibitors or ARBs, beta-blockers, MRAs, and SGLT2 inhibitors.\n*   **Patient-Centric Selection:** The choice of specific agents must be tailored to individual patient characteristics, existing comorbidities, and potential drug-drug interactions.\n*   **Guideline Adherence:** Therapy selection should be strictly guided by current clinical practice guidelines and the most recent evidence of benefit.\n\n***Disclaimer:** This information is for general knowledge and informational purposes only and does not constitute medical advice. It is essential to consult with a qualified healthcare professional for any health concerns or before making any decisions related to health or treatment.*",
+    "contexts": [
+      "{\"agent\": \"pubmed\", \"refined_query\": null}"
+    ],
+    "ground_truth": "SGLT2 inhibitors dapagliflozin and empagliflozin have both demonstrated significant reductions in the composite of worsening heart failure events or cardiovascular death in patients with HFrEF, regardless of diabetes status. DAPA-HF (NEJM 2019) showed dapagliflozin reduced the primary composite endpoint by 26% (HR 0.74, 95% CI 0.65-0.85). EMPEROR-Reduced (NEJM 2020) showed empagliflozin reduced hospitalisation for heart failure by 30% (HR 0.70, 95% CI 0.58-0.85). Both are now recommended in major guidelines (ESC 2021, ACC/AHA 2022) as standard of care for HFrEF independent of diabetes status.",
+    "domain": "pubmed",
+    "item_id": "PUBMED-01",
+    "judge_score": 4,
+    "agents_used": [
+      "pubmed"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What does the evidence say about thrombectomy for acute ischaemic stroke beyond 6 hours of onset?",
+    "answer": "# Mechanical Thrombectomy in Extended Time Windows for Acute Ischemic Stroke\n\n### Clinical Overview\nMechanical thrombectomy (MT) may be considered for patients with acute ischemic stroke presenting beyond the standard 6-hour window, provided specific imaging criteria are met. While evidence is most robust for the initial 6-hour window, data from the **DAWN** and **DEFUSE 3** trials support the extension of this therapy into the 6\u201324 hour window.\n\n### Key Findings & Evidence\n*   **Patient Selection:** Benefit is most pronounced in patients with **Large Vessel Occlusion (LVO)** and specific imaging findings.\n*   **Imaging-Based Selection:** There is a strong emphasis on using advanced imaging to select candidates for endovascular therapy (EVT) in the extended window, as current protocols may otherwise exclude viable patients.\n*   **Expanded Windows:** Some retrospective studies have investigated the safety and efficacy of endovascular therapy in patients treated *beyond* 24 hours who meet extended window trial criteria.\n*   **Special Populations:** Research into extended time window EVT in pediatric stroke patients is ongoing, though more data is required for this demographic.\n\n### Summary of Research Literature\n*   **Treatment Updates:** Current guidelines highlight an increasing eligibility for reperfusion therapies due to these extending time windows.\n*   **Methodology:** Experts suggest utilizing a simplified algorithm for selecting imaging modalities to effectively guide EVT decisions in the extended window.\n*   **Cost-Utility:** Comparisons indicate that mechanical thrombectomy combined with medical treatment beyond 6 hours offers favorable cost-utility compared to medical treatment alone.\n*   **Emergent Alternatives:** For patients who have failed tPA or are beyond the 24-hour window, pilot protocols are exploring triple neuroprotection (targeted hypothermia, controlled induced hypertension, and barbiturate infusion) during emergency carotid endarterectomy.",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "DAWN (NEJM 2018) and DEFUSE 3 (NEJM 2018) demonstrated benefit of mechanical thrombectomy up to 24 hours in carefully selected patients with large vessel occlusion, small core infarct, and large penumbra on perfusion imaging. DAWN used clinical-imaging mismatch criteria (NIHSS \u226510, DWI infarct <31mL for age <80); DEFUSE 3 used perfusion-diffusion mismatch (ischaemic core <70mL, mismatch ratio \u22651.8). Both showed significant improvement in functional independence at 90 days. Current AHA/ASA guidelines (2019 update) support thrombectomy up to 24 hours in appropriately selected patients using DAWN or DEFUSE 3 criteria.",
+    "domain": "pubmed",
+    "item_id": "PUBMED-02",
+    "judge_score": 4,
+    "agents_used": [
+      "pubmed"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What is the evidence for PCSK9 inhibitors in reducing LDL and cardiovascular events?",
+    "answer": "# PCSK9 Inhibitors: Clinical Efficacy & Therapeutic Use\n\n### Overview\nPCSK9 inhibitors, such as **evolocumab** and **alirocumab**, are potent monoclonal antibodies designed to significantly reduce low-density lipoprotein cholesterol (LDL-C). These agents are primarily indicated for patients with atherosclerotic cardiovascular disease (ASCVD), severe familial hypercholesterolemia, or those at high risk who have not achieved LDL-C goals despite maximally tolerated statin therapy [1, 2].\n\n### Clinical Efficacy & Evidence\nThese medications are highly effective at lowering LDL-C, often reaching targets unattainable by high-intensity statins alone.\n\n*   **LDL-C Reduction:**\n    *   **Potency:** In statin-na\u00efve patients, these inhibitors can reduce LDL-C by approximately 70%, and by 60% in those already receiving statin therapy.\n    *   **Trial Data:** In the EVOPACS trial, evolocumab reduced mean LDL-C from 3.61 to 0.79 mmol/l at week 8 (a -40.7% change compared to placebo).\n*   **Cardiovascular Outcomes:**\n    *   **FOURIER Trial (Evolocumab):** Demonstrated a 15% reduction in the primary composite endpoint (cardiovascular death, myocardial infarction, or stroke) for patients with established ASCVD [1].\n    *   **ODYSSEY OUTCOMES (Alirocumab):** Showed a reduced risk of cardiovascular events in patients with established CVD and hypercholesterolemia, specifically those with diabetes mellitus [2].\n    *   **General Impact:** Adding these agents to maximally tolerated statins is estimated to prevent new CVD events in 1 in 65 patients. The absolute benefit is notably greater in patients with baseline LDL cholesterol $\\ge$ 100 mg/dL.\n\n### Clinical Guidance & Administration\nAccording to **ACC/AHA guidelines**, PCSK9 inhibitors are recommended for secondary prevention of ASCVD and as a critical alternative for patients with statin intolerance [3].\n\n*   **Administration:** These drugs are administered via **subcutaneous injection**.\n*   **Therapeutic Sequencing:** Due to high annual costs and the efficacy of first-line treatments, they are typically reserved for high-risk patients and sequenced after statins and ezetimibe [4].\n\n### Safety & Precautions\n*   **Safety Profile:** Generally described as having a favorable safety profile.\n*   **Considerations:** Due to the parenteral nature of the drug and high cost, prior authorization is typically required.\n\n***",
+    "contexts": [
+      "{\"agent\": \"pubmed\", \"refined_query\": null}"
+    ],
+    "ground_truth": "FOURIER (NEJM 2017) and ODYSSEY OUTCOMES (Lancet 2018) demonstrated that PCSK9 inhibitors (evolocumab and alirocumab respectively) reduce LDL-C by ~60% on top of high-intensity statin therapy and significantly reduce major adverse cardiovascular events in patients with established atherosclerotic cardiovascular disease. FOURIER: evolocumab reduced the primary composite endpoint (MI, stroke, CV death, UA hospitalisation, revascularisation) by 15% (HR 0.85, p<0.001). ODYSSEY OUTCOMES: alirocumab reduced MACE by 15% (HR 0.85, p<0.0001) with greatest benefit in patients with baseline LDL \u2265100mg/dL.",
+    "domain": "pubmed",
+    "item_id": "PUBMED-03",
+    "judge_score": 4,
+    "agents_used": [
+      "pharmacology",
+      "pubmed"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "Retrieve clinical guidelines for septic shock resuscitation in the ICU.",
+    "answer": "# Septic Shock: Resuscitation and Management Guidelines\n\n### Hemodynamic Targets & Vasopressors\n*   **MAP Target:** The recommended Mean Arterial Pressure (MAP) target during initial resuscitation for patients in septic shock requiring vasopressors is **65 mmHg** [1]. There is no significant advantage to higher targets, and no harm has been noted in elderly patients at this level [1].\n*   **First-line Therapy:** *Norepinephrine* is the recommended first-line vasopressor [3, 4].\n*   **Adjunct Therapy:** Intravenous corticosteroids are weakly recommended for patients with septic shock who require ongoing vasopressor therapy [3, 4].\n\n### Fluid Resuscitation Strategy\n*   **Fluid Choice:** There is a weak recommendation to utilize **balanced crystalloids** rather than 0.9% normal saline [2].\n*   **Volume Administration:** While the traditional 30 mL/kg crystalloid bolus remains a reference, this has been downgraded from a strong to a **weak recommendation** [2].\n*   **Clinical Approach:** Guidance has shifted toward a personalized approach prioritizing *dynamic assessments* of fluid responsiveness to mitigate the risk of fluid overload [1, 2].\n\n### Clinical Monitoring & Evaluation\n*   **Assessment Frequency:** Response to therapy should be evaluated at least **every 2 hours**.\n*   **Monitoring Parameters:** ICU protocols should include continuous monitoring for:\n    *   ***Signs of Fluid Overload:*** Crackles, elevated CVP, edema, and neck vein distention.\n    *   ***Signs of Dehydration:*** Decreased urine output and weak peripheral pulses.\n*   **Clinical Judgment:** Guidelines serve as a framework and should not replace professional clinical judgment when managing unique patient presentations [1].\n\n***",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "The Surviving Sepsis Campaign (SSC) 2021 guidelines recommend: (1) IV crystalloid fluid resuscitation, initiating with 30mL/kg within 3 hours for sepsis-induced hypoperfusion; (2) norepinephrine as first-line vasopressor to maintain MAP \u226565 mmHg; (3) vasopressin 0.03 units/min as second agent when norepinephrine doses escalate; (4) hydrocortisone 200mg/day IV for septic shock refractory to adequate fluid and vasopressor therapy; (5) blood cultures before antibiotics; (6) broad-spectrum IV antibiotics within 1 hour of recognition; (7) lactate measurement to guide resuscitation (targeting normalisation).",
+    "domain": "pubmed",
+    "item_id": "PUBMED-04",
+    "judge_score": 5,
+    "agents_used": [
+      "pubmed"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What are the published outcomes for TAVR versus SAVR in low-surgical-risk patients?",
+    "answer": "# TAVR vs. SAVR in Low-Risk Severe Aortic Stenosis\n\n### Clinical Overview\nCurrent evidence indicates that **Transcatheter Aortic Valve Replacement (TAVR)** is at least as effective as **Surgical Aortic Valve Replacement (SAVR)** regarding early mortality and disabling stroke in low-risk patients. While TAVR is considered non-inferior to SAVR, the optimal selection remains highly individualized based on patient anatomy, age, and procedural considerations.\n\n### Key Research Evidence\n*   **Survival and Primary Outcomes:** Meta-analyses of randomized controlled trials (RCTs), including the *PARTNER 3* and *Evolut Low-Risk* trials, demonstrate that TAVR is non-inferior to SAVR in 5-year survival. Cumulative incidences of heart failure reoperation, endocarditis, stroke, and general reoperation are similar between both cohorts.\n*   **Special Populations:** \n    *   **Bicuspid Aortic Valves:** Evidence from the *NOTION-2* trial suggests that SAVR may be favored for patients with bicuspid valves due to higher rates of paravalvular leak and concerns regarding long-term TAVR durability in this specific anatomy.\n    *   **Atrial Fibrillation:** Analysis of the *PARTNER 3* trial showed no significant difference in outcomes between TAVR and SAVR groups at the 2-year mark.\n*   **Long-Term Considerations:** While 5-year data is becoming available, further investigation is required to fully determine the long-term impact of TAVR on pacemaker implantation rates and the prevalence of paravalvular leaks.\n\n### Clinical Guidance for Patient Selection\nThe decision between TAVR and SAVR should be tailored to the individual patient using the following criteria:\n\n*   **Age and Comorbidities:** While guidelines (ACC/AHA) typically recommend SAVR for patients $\\le 65$ years, the non-inferiority of TAVR in low-risk populations is prompting a shift in practice patterns.\n*   **Anatomical Features:** \n    *   *Tricuspid Valve:* TAVR is a strong consideration.\n    *   *Bicuspid Valve:* SAVR may be preferred to reduce leak risk and ensure durability.\n*   **Procedural Factors:** \n    *   **Device Type:** Choice between self-expandable vs. balloon-expandable TAVR devices.\n    *   **Surgical Scope:** Consideration of whether the patient requires isolated valve replacement or concomitant surgical procedures.\n\n### Summary Table: Comparative Considerations\n\n| Factor | TAVR Consideration | SAVR Consideration |\n| :--- | :--- | :--- |\n| **Early Mortality** | Non-inferior | Non-inferior |\n| **Disabling Stroke** | Comparable risk | Comparable risk |\n| **Valve Anatomy** | Better for Tricuspid | Preferred for Bicuspid |\n| **Recovery** | Less invasive | Standard surgical recovery |\n| **Long-term Data** | Emerging (5-year data) | Established long-term record |",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "PARTNER 3 (NEJM 2019) and Evolut Low Risk Trial (NEJM 2019) both demonstrated non-inferiority (and in some cases superiority) of TAVR vs SAVR in low-surgical-risk patients with severe symptomatic aortic stenosis. PARTNER 3 (balloon-expandable TAVR): TAVR group had lower rate of death/stroke/rehospitalisation at 1 year (8.5% vs 15.1%, HR 0.54, p<0.001). Evolut Low Risk Trial (self-expanding TAVR): 24-month all-cause mortality or disabling stroke 5.3% TAVR vs 6.7% SAVR (within non-inferiority margin). Both trials established TAVR as a viable option in low-risk patients; long-term valve durability data beyond 5\u201310 years remains under study.",
+    "domain": "pubmed",
+    "item_id": "PUBMED-05",
+    "judge_score": 4,
+    "agents_used": [
+      "pubmed"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What is the current evidence for dual antiplatelet therapy duration after drug-eluting stent implantation?",
+    "answer": "# DAPT Duration After Drug-Eluting Stent (DES) Implantation\n\n### Clinical Overview\nThe optimal duration of dual antiplatelet therapy (DAPT) following the implantation of a drug-eluting stent (DES) is a subject of ongoing clinical evolution. While a **12-month regimen** was historically the gold standard, contemporary evidence supports a shift toward **individualized therapy** based on a patient's specific balance of ischemic and bleeding risks.\n\n### Current Evidence & Research Trends\nRecent data suggests that shorter DAPT durations may be safe and potentially beneficial, particularly for patients at high risk of bleeding.\n\n*   **Shorter Duration Efficacy:** \n    *   Clinical trials have found 3-month DAPT to be non-inferior to 12-month DAPT for primary composite endpoints at 18 months in specific stent types (e.g., biodegradable-polymer sirolimus-eluting stents).\n    *   Systematic reviews of newer DES indicate no significant difference in primary endpoints when comparing 30-day DAPT versus longer durations at 18 months.\n    *   Meta-analyses suggest that de-escalating to ticagrelor monotherapy may be comparable to maintaining standard 12-month DAPT.\n*   **Assessment Tools:** The use of Optical Coherence Tomography (OCT) is being explored to assess neointimal coverage (stent healing) as a surrogate marker to determine if shorter DAPT durations are safe for a specific patient.\n\n### Clinical Guidance & Guidelines\n\n#### **European Society of Cardiology (ESC) 2023**\n*   Emphasizes an individualized approach.\n*   Recommends the use of validated risk scores, such as **ARC-HBR** or **PRECISE-DAPT**, to assess bleeding risk and determine the appropriate DAPT duration.\n\n#### **ACC/AHA Guidelines**\n*   Generally maintain a recommendation of **12 months** of DAPT for patients treated with DES.\n*   Acknowledge that this duration may be adjusted based on patient-specific risk factors, with a particular focus on bleeding risk.\n\n### Summary for Clinical Practice\nThe transition from a fixed 12-month window to a tailored approach requires a comprehensive evaluation of the patient's profile, including:\n*   **Age and Comorbidities**\n*   **Prior Bleeding History**\n*   **Potency of Antiplatelet Agents Used**\n*   **Ischemic Risk vs. Bleeding Risk Balance**",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Current ACC/AHA guidelines (2022) recommend at least 6 months of DAPT (aspirin + P2Y12 inhibitor) after DES implantation for stable CAD. For ACS, 12 months is the standard. DAPT Study (NEJM 2014) found extending DAPT to 30 months reduced stent thrombosis and MACE but increased bleeding. PEGASUS-TIMI 54 (NEJM 2015) found ticagrelor 60mg added to aspirin beyond 1 year reduced MACE in prior MI patients but increased TIMI major bleeding. The balance of ischaemic vs. bleeding risk should guide duration; tools like DAPT Score, PRECISE-DAPT can assist decision-making.",
+    "domain": "pubmed",
+    "item_id": "PUBMED-06",
+    "judge_score": 4,
+    "agents_used": [
+      "pubmed"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What does the literature say about proton pump inhibitors and dementia risk?",
+    "answer": "# Proton Pump Inhibitors (PPIs) and Dementia Risk\n\nThe relationship between proton pump inhibitors (PPIs) and the risk of dementia remains **controversial and inconclusive**. While some observational data suggests a correlation, high-quality causal analyses have failed to establish a definitive link.\n\n### Clinical Evidence & Analysis\nThere is a significant discrepancy between observational findings and genetic causal analyses:\n\n*   **Evidence Suggesting Risk:** Some cohort studies and meta-analyses report a potential association between chronic PPI use and an increased risk of dementia, including Alzheimer's disease [1]. Risk may be more pronounced in patients diagnosed before age 70 [2].\n*   **Evidence Refuting Risk:** Large-scale population studies and updated meta-analyses involving over 600,000 patients have concluded that PPI use does *not* increase the risk of dementia or Alzheimer\u2019s, particularly in individuals with normal cognition or mild cognitive impairment at baseline [3, 4].\n*   **Causality & Genetics:** Recent **Mendelian randomization (MR) studies**, which utilize genetic variants to minimize confounding factors, have been employed to isolate the direct effects of PPIs (including Lansoprazole and Omeprazole). These studies generally suggest that previously reported associations may be due to confounding variables rather than a direct causal effect of the medication [5, 6].\n*   **Confounding Factors:** Research suggests that observed risks may be associated with the underlying condition being treated (e.g., GERD) rather than the medication itself [7].\n\n### Potential Biological Mechanisms\nIf a link exists, the following biological drivers have been proposed:\n*   **Vitamin B12 Deficiency:** Chronic PPI use can lead to the malabsorption of Vitamin B12. Deficiency in this vitamin is a documented cause of neurological symptoms and cognitive impairment [8].\n*   **Amyloid-Beta Metabolism:** Some theories suggest the modulation of amyloid-beta (A\u03b2) metabolism may play a role [9].\n\n### Clinical Guidance & Safety Warnings\n*   **Duration of Use:** Acid suppressants are generally indicated for short-term use; the long-term cognitive effects of chronic use require further investigation.\n*   **B12 Monitoring:** Clinicians should be aware that chronic PPI use may conceal or contribute to Vitamin B12 deficiency, which can mimic or exacerbate cognitive decline.\n*   **Treatment Balance:** Physicians are advised to balance the clinical benefits of PPI therapy against these inconclusive risks, as no medical consensus currently exists to definitively link the drug class to the onset of dementia.\n\n***",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Observational data have suggested a possible association between long-term PPI use and increased dementia risk, but randomised evidence does not support a causal relationship. A German cohort study (JAMA Neurology 2016) reported HR 1.44 for dementia with regular PPI use. However, the ASPREE-PPI substudy and a large Mendelian randomisation analysis (BMJ 2021) found no causal association after controlling for confounders. Current consensus is that available evidence does not support restricting appropriate PPI use based on dementia concerns; the association likely reflects confounding by indication.",
+    "domain": "pubmed",
+    "item_id": "PUBMED-07",
+    "judge_score": 4,
+    "agents_used": [
+      "pharmacology",
+      "pubmed"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "Summarise recent trials on CAR-T cell therapy for relapsed B-cell lymphoma.",
+    "answer": "# CAR-T Cell Therapy for Relapsed/Refractory Large B-Cell Lymphoma (LBCL)\n\nClinical evidence from the **ZUMA-1**, **JULIET**, and **TRANSCEND** trials demonstrates the efficacy of CD19-directed CAR-T cell therapies in patients with relapsed or refractory aggressive B-cell lymphoma who have received two or more prior lines of therapy [1, 2, 3].\n\n### Trial Outcomes & Efficacy\n\n*   **ZUMA-1 Trial (Axi-cel)**\n    *   *Agent:* Axicabtagene ciloleucel\n    *   *Results:* Reported an overall response rate (**ORR**) of **82%** and a complete response rate (**CR**) of **54%** in 93 evaluable patients [1, 2, 3].\n*   **JULIET Trial (Tisagenlecleucel)**\n    *   *Agent:* Tisagenlecleucel\n    *   *Results:* Reported an overall response rate (**ORR**) of **52%** and a complete response rate (**CR**) of **40%** in 93 evaluable patients [1, 2, 3, 4].\n*   **TRANSCEND NHL 001 Trial (Liso-cel)**\n    *   *Agent:* Lisocabtagene maraleucel\n    *   *Results:* Reported an overall response rate (**ORR**) of **52%** and a complete response rate (**CR**) of **40%** in 93 evaluable patients [1, 2, 3].",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "CD19-directed CAR-T cell therapies (axicabtagene ciloleucel, tisagenlecleucel, lisocabtagene maraleucel) have transformed management of relapsed/refractory DLBCL. ZUMA-1 (axicab, Nature Medicine 2019): 83% ORR, 58% CR rate, 40% durable response at 2 years. JULIET (tisacel, NEJM 2019): 52% ORR, 40% CR. TRANSFORM and ZUMA-7 trials (NEJM 2022) established CAR-T superiority over standard salvage chemotherapy + ASCT as second-line therapy in primary refractory/early relapsed LBCL. Common toxicities: cytokine release syndrome (CRS, managed with tocilizumab) and immune effector cell-associated neurotoxicity syndrome (ICANS). All three agents FDA-approved; axicab and lisocab now approved as second-line therapy.",
+    "domain": "pubmed",
+    "item_id": "PUBMED-08",
+    "judge_score": 4,
+    "agents_used": [
+      "pubmed"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What are recent meta-analyses on dapagliflozin in chronic kidney disease?",
+    "answer": "# Dapagliflozin in Chronic Kidney Disease (CKD) Management\n\n### Clinical Efficacy and Evidence\nDapagliflozin, a Sodium-Glucose Cotransporter 2 (SGLT2) inhibitor, is established as a cornerstone therapy for slowing the progression of chronic kidney disease. Its benefits extend to patients **with or without type 2 diabetes**.\n\n*   **Renal and Cardiovascular Protection:** \n    *   The **DAPA-CKD trial** demonstrated statistically significant improvements in renal and cardiovascular composite outcomes for participants with an eGFR of 25 to 75 ml/min/1.73 m\u00b2 and a urinary albumin-to-creatinine ratio of 200 to 5,000 mg/g.\n    *   Meta-analyses indicate a **39% reduction in the risk of kidney failure** (dialysis, transplantation, or death due to kidney disease) when dapagliflozin is added to standard therapy [2, 3].\n    *   Evidence from 93 Italian renal clinics confirmed significant improvements in cardio-renal outcomes in real-world CKD populations.\n*   **Broad Application:**\n    *   Approved for a diverse CKD population, including those in **stages 4 and 5** [1, 3].\n    *   Effective across various levels of eGFR and albuminuria [2, 3].\n*   **Additional Benefits:**\n    *   **Anemia Management:** Research suggests dapagliflozin significantly improves hemoglobin levels in patients with CKD, potentially serving as a background therapy for anemia [5].\n    *   **Pediatric Use:** While primarily used via compassionate use in children with type 2 diabetes and CKD, emerging reviews highlight the need for further formal research [4].\n\n### Pharmacology and Administration\n*   **Dosage:** Clinical data indicates that a **10 mg dose** is effective for the treatment of CKD in diverse patient populations.\n*   **Regulatory Status:** Recommended by NICE (UK) as a treatment option for chronic kidney disease (TA1075).\n*   **Combination Therapy:** Often used in conjunction with other antihypertensives, such as Angiotensin Receptor Blockers (ARBs), as part of a comprehensive CKD management plan.\n\n### Safety and Monitoring\nWhile generally safe and effective, the following precautions are essential:\n\n*   **Renal Monitoring:** Regular monitoring of the estimated glomerular filtration rate (**eGFR**) is required.\n*   **Key Risks:** \n    *   *Metabolic:* Risk of diabetic ketoacidosis.\n    *   *Infection:* Increased susceptibility to genital mycotic infections.\n    *   *Hemodynamics:* Potential for volume depletion, particularly during therapy initiation or dose adjustment [1, 3].\n\n***",
+    "contexts": [
+      "{\"agent\": \"pharmacology\", \"refined_query\": \"dapagliflozin CKD meta-analysis\"}"
+    ],
+    "ground_truth": "DAPA-CKD (NEJM 2020) demonstrated dapagliflozin 10mg significantly reduced the composite of \u226550% eGFR decline, ESRD, or renal/CV death in patients with CKD (eGFR 25\u201375, UACR \u2265200 mg/g) irrespective of diabetes status (HR 0.61, 95% CI 0.51-0.72, NNT=19 over 2.4 years). This led to FDA approval for CKD in 2021. Subsequent meta-analyses (Lancet Diabetes & Endocrinology 2022) pooling CREDENCE, DAPA-CKD, EMPA-KIDNEY, and other SGLT2i CKD trials confirmed class-wide benefit: ~37% reduction in kidney disease progression and 14% reduction in CV death across the class regardless of diabetes.",
+    "domain": "pubmed",
+    "item_id": "PUBMED-09",
+    "judge_score": 4,
+    "agents_used": [
+      "pharmacology",
+      "pubmed"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What is the evidence base for low-dose aspirin in primary prevention of cardiovascular disease?",
+    "answer": "# Low-Dose Aspirin for Primary Prevention of Cardiovascular Disease\n\nThe clinical paradigm for using low-dose aspirin in the primary prevention of cardiovascular disease (CVD) has shifted from broad application to a highly individualized approach. While aspirin is highly effective for *secondary prevention* (reducing atherothrombotic complications by approximately 20% after an initial event) [3], its role in primary prevention is more controversial due to a narrow benefit-to-harm ratio [4].\n\n### Clinical Guidelines & Recommendations\nCurrent guidance from the **U.S. Preventive Services Task Force (USPSTF)** and other major health organizations emphasizes the following:\n\n*   **Adults $\\ge$ 60 Years:** Initiation of low-dose aspirin for primary prevention is **strongly recommended against** [5].\n*   **Adults 40\u201359 Years:** The decision to initiate aspirin should be made on an **individualized, case-by-case basis**. This is specifically for patients with a 10-year CVD risk of 10% or greater, provided they are not at an increased risk of bleeding [6, 7].\n*   **Diabetic Populations:** Evidence supporting the efficacy of aspirin for primary prevention in patients with diabetes remains unclear and lacking [2, 1].\n*   **Standard Dosage:** For patients determined to be appropriate candidates, a reasonable dose is **81 mg/day**.\n\n### Risk-Benefit Analysis\nThe primary limiting factor in the use of aspirin for primary prevention is the risk of major bleeding, which may outweigh the modest cardiovascular benefits.\n\n*   **Major Risks:**\n    *   ***Hemorrhagic Stroke:*** Increased incidence of bleeding within the brain.\n    *   ***Gastrointestinal Bleeding:*** Daily use can lead to severe GI hemorrhage.\n*   **Benefit Profile:** Recent trials demonstrate only a neutral or small treatment benefit in reducing heart attack and stroke risk for primary prevention, compared to a significant increase in bleeding risks [1, 4].\n\n### Summary Table: Primary vs. Secondary Prevention\n\n| Feature | Primary Prevention | Secondary Prevention |\n| :--- | :--- | :--- |\n| **Goal** | Prevent the first CVD event | Prevent a subsequent CVD event |\n| **Recommendation** | Individualized/Age-restricted | Strongly recommended |\n| **Benefit/Risk** | Narrow; risk of bleeding is significant | High benefit; outweighs risks |\n\n***",
+    "contexts": [
+      "{\"agent\": \"pharmacology\", \"refined_query\": \"aspirin primary prevention evidence\"}"
+    ],
+    "ground_truth": "Three landmark RCTs published in 2018 (ASPREE, ARRIVE, ASCEND) substantially changed primary prevention recommendations. ASPREE (NEJM 2018): aspirin 100mg in healthy elderly (\u226570 years) did not reduce MACE but significantly increased major haemorrhage and all-cause mortality. ARRIVE (Lancet 2018): aspirin 100mg in moderate-CV-risk patients showed no MACE benefit with increased GI bleeding. ASCEND (NEJM 2018): aspirin reduced MACE in diabetic patients without established CVD but comparable increase in major bleeding. Current ACC/AHA and USPSTF guidelines no longer recommend aspirin for primary prevention in adults \u226560 years; in adults 40\u201359 with \u226510% 10-year CV risk, shared decision-making is recommended based on individual bleeding risk.",
+    "domain": "pubmed",
+    "item_id": "PUBMED-10",
+    "judge_score": 4,
+    "agents_used": [
+      "pharmacology",
+      "pubmed"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "A 55-year-old male presents with crushing chest pain radiating to the left arm, diaphoresis, and nausea for 30 minutes. What are the top differential diagnoses?",
+    "answer": "# Acute Chest Pain: Clinical Evaluation & Differential Diagnosis\n\n***Disclaimer: The following information is for clinical reasoning support and should be used by a licensed healthcare professional. This is not a definitive diagnosis.***\n\n### Clinical Profile\n*   **Patient:** Adult Male\n*   **Primary Symptom:** Sudden, crushing chest pain.\n*   **Radiation:** Pain extending to the left arm.\n*   **Associated Symptoms:** Diaphoresis (sweating) and nausea.\n*   **Severity:** *High/Critical*. This constellation of symptoms is highly suggestive of a life-threatening cardiovascular event.\n\n### Differential Diagnosis\nThe following conditions are being considered based on the clinical presentation:\n\n*   **Acute Coronary Syndrome (ACS) / Myocardial Infarction (MI)**\n    *   *Rationale:* Classic presentation of crushing chest pain radiating to the left arm, accompanied by diaphoresis and nausea [1], [2].\n*   **Angina Pectoris**\n    *   *Rationale:* High probability based on precordial pain and thoracodynia, fitting the spectrum of ischemic heart disease.\n*   **Acute Aortic Dissection**\n    *   *Rationale:* While often \"tearing,\" it can present as severe crushing pain; must be ruled out to avoid contraindicated anticoagulant therapy [3], [4].\n*   **Pulmonary Embolism (PE)**\n    *   *Rationale:* Can present with acute chest pain and autonomic instability [5].\n*   **Gastrointestinal Issues (e.g., GERD, Esophageal Spasm)**\n    *   *Rationale:* Severe esophageal spasms can mimic the crushing sensation of a myocardial infarction [6].\n\n### Critical Red Flags\nImmediate exclusion of the following life-threatening conditions is required:\n*   **STEMI:** Total coronary occlusion requiring immediate reperfusion.\n*   **Aortic Dissection:** Risk of rupture or organ ischemia.\n*   **Pulmonary Embolism:** Risk of hemodynamic collapse.\n*   **Tension Pneumothorax:** Risk of respiratory failure and obstructive shock.\n\n### Recommended Clinical Pathway\nDue to the high risk of a cardiovascular event, **immediate emergency evaluation** is indicated.\n\n**Immediate Diagnostics**\n*   **12-Lead ECG:** To identify ST-segment elevation or depressions.\n*   **Cardiac Biomarkers:** High-sensitivity Troponin levels to detect myocardial necrosis.\n*   **Imaging:**\n    *   *Chest X-ray:* To screen for widened mediastinum or pneumothorax.\n    *   *CT Angiography (CTA):* If Aortic Dissection or PE is strongly suspected.\n    *   *Bedside Echocardiography:* To evaluate wall motion abnormalities or right ventricular strain.\n\n**Specialist Referral**\n*   Immediate consultation with **Cardiology** and **Emergency Medicine**.",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Top differentials in order of urgency: (1) ST-elevation myocardial infarction (STEMI) \u2014 must be excluded first with 12-lead ECG; (2) Non-ST-elevation acute coronary syndrome (NSTEMI/UA); (3) Aortic dissection \u2014 especially if pain is tearing, ripping, or radiates to the back, or if there is BP differential between arms; (4) Pulmonary embolism \u2014 though less typical with this presentation; (5) Acute pericarditis/myocarditis; (6) Oesophageal rupture (Boerhaave syndrome) \u2014 rare but catastrophic. Immediate investigations: 12-lead ECG within 10 minutes, high-sensitivity troponin at 0 and 1\u20133 hours, chest X-ray. Activate cath lab if STEMI confirmed.",
+    "domain": "diagnosis",
+    "item_id": "DIAG-01",
+    "judge_score": 4,
+    "agents_used": [
+      "diagnosis"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What scoring system is used to assess severity in community-acquired pneumonia, and what does each score indicate?",
+    "answer": "# Community-Acquired Pneumonia (CAP): Clinical Assessment & Management\n\n### Clinical Profile\nThe patient presents with a constellation of symptoms highly suggestive of pneumonia, including:\n*   **Cough**\n*   **Fever**\n*   **Shortness of breath**\n*   **Chest pain**\n\nCurrent findings indicate **pneumococcal lobar pneumonia** specifically affecting the *right upper lobe* and *right middle zone*, likely caused by ***Streptococcus pneumoniae***.\n\n### Differential Diagnosis\nThe clinical presentation is consistent with the following:\n\n*   **Community-Acquired Pneumonia (CAP):** The primary diagnosis; an infection acquired outside of a healthcare setting.\n*   **Lobar Pneumonia:** A specific manifestation of CAP involving localized infection of the lung parenchyma.\n*   **Pneumococcal Pneumonia:** Pneumonia specifically caused by the bacterium *Streptococcus pneumoniae*.\n\n### Critical Red Flags & Complications\nIt is essential to monitor for the following high-risk developments:\n*   **Severe Complications:** Development of sepsis, empyema (pus in the pleural space), or lung abscess.\n*   **Underlying Vulnerabilities:** Increased risk of severe outcomes in patients with COPD, heart failure, or immunosuppression.\n*   **Alternative Diagnoses:** Consideration of acute bronchitis or other respiratory infections that may mimic initial symptoms.\n\n### Management & Next Steps\n\n**Clinical Evaluation & Monitoring**\n*   Continuous assessment of vital signs and overall clinical response to therapy.\n*   Monitoring of respiratory function and stability.\n\n**Diagnostic Testing**\n*   **Laboratory:** Complete Blood Count (CBC), inflammatory markers (C-reactive protein, ESR), blood cultures, sputum cultures, and arterial blood gas (ABG) analysis.\n*   **Imaging:** Chest X-ray or CT scan to confirm the extent of the pneumonia and rule out abscesses or empyema.\n\n**Treatment & Specialist Care**\n*   **Pharmacotherapy:** Administration of antibiotics targeted at *Streptococcus pneumoniae* (e.g., *ceftriaxone, levofloxacin, or amoxicillin-clavulanate*).\n*   **Referrals:** Consultation with a **Pulmonologist** or **Infectious Disease Specialist** may be indicated based on the patient's risk factors or lack of response to initial treatment.\n\n---\n> \u26a0\ufe0f **Clinical Disclaimer**: This response has been flagged by our quality reviewer for potential inaccuracies or incomplete information. Please consult a qualified healthcare professional before acting on this information. *(Quality Score: 2/5 \u2014 The response partially addresses community-acquired pneumonia but fails to directly answer the query about the scoring system used to assess severity in community-acquired pneumonia.)*",
+    "contexts": [
+      "{\"agent\": \"diagnosis\", \"refined_query\": \"CAP severity scoring systems\"}"
+    ],
+    "ground_truth": "The CURB-65 score (British Thoracic Society) is widely used for CAP severity. One point each for: Confusion (new onset), Urea >7 mmol/L, Respiratory rate \u226530/min, Blood pressure (systolic <90 or diastolic \u226460 mmHg), age \u226565 years. Score 0\u20131: low severity, consider home treatment; Score 2: moderate severity, consider hospital admission; Score \u22653: severe CAP, consider ICU assessment. The PSI/PORT score offers more granular risk stratification but is more complex. CURB-65 \u22653 has ~17\u201322% 30-day mortality. Addition of oxygen saturation (CURB-65 + SpO2 <92%) enhances triage. Note: CURB-65 does not replace clinical judgement \u2014 comorbidities, social factors, and treatment response also guide disposition.",
+    "domain": "diagnosis",
+    "item_id": "DIAG-02",
+    "judge_score": 2,
+    "agents_used": [
+      "diagnosis"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "A 28-year-old woman presents with 3 months of fatigue, weight gain, cold intolerance, constipation, and dry skin. What is the most likely diagnosis and how is it confirmed?",
+    "answer": "# Hypothyroidism: Clinical Evaluation and Differentials\n\n### Clinical Profile\nThe patient is a female presenting with a 1-day history of moderate severity symptoms, including:\n*   **Fatigue**\n*   **Weight gain**\n*   **Cold intolerance**\n*   **Constipation**\n*   **Dry skin**\n\n### Differential Diagnosis\n\n**1. Hypothyroidism**\n*   **Likelihood:** Most likely diagnosis.\n*   **Rationale:** The classic constellation of metabolic slowing (weight gain, cold intolerance, constipation, dry skin, and fatigue) is highly suggestive of insufficient thyroid hormone [1, 2, 3, 4, 5, 6, 7, 8].\n\n**2. Depression**\n*   **Rationale:** May present with fatigue and weight/appetite changes; however, it does not typically account for cold intolerance, dry skin, or constipation [3, 4].\n\n**3. Chronic Fatigue Syndrome (CFS) / Myalgic Encephalomyelitis (ME)**\n*   **Rationale:** While fatigue is a hallmark, CFS/ME typically involves post-exertional malaise and cognitive difficulties rather than the metabolic symptoms observed here [3, 4].\n\n**4. Anemia**\n*   **Rationale:** While anemia causes fatigue, it does not typically result in weight gain, constipation, or dry skin [3, 4].\n\n### Critical Red Flags\n*   **Myxedema Coma:** A rare, life-threatening complication of severe hypothyroidism. Practitioners should monitor for altered mental status, hypothermia, bradycardia, and hypoventilation [6, 2].\n\n### Recommended Next Steps\n\n**Laboratory Testing**\n*   **TSH (Thyroid-Stimulating Hormone):** Primary initial screening test. Elevated levels indicate the pituitary is attempting to stimulate an underactive thyroid [1, 7, 8, 2].\n*   **Free T4 (Free Thyroxine):** Measures active thyroid hormone; typically low in hypothyroid states [1, 7, 8, 2].\n*   **Thyroid Antibody Testing:** If TSH is elevated and Free T4 is low, test for **anti-thyroid peroxidase (anti-TPO)** and **anti-thyroglobulin (anti-Tg)** antibodies to diagnose Hashimoto's thyroiditis [6, 2].\n\n**Further Evaluation**\n*   **Imaging:** Consider a thyroid ultrasound to evaluate for nodules or structural abnormalities, particularly if a goiter is present or there is a known history of thyroid disease.",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Primary hypothyroidism is the most likely diagnosis. Classic symptoms are present: fatigue, weight gain, cold intolerance, constipation, dry skin, bradycardia (if present), and menstrual irregularities. Confirmation: serum TSH is the first-line test \u2014 elevated TSH (typically >4.5 mIU/L) confirms primary hypothyroidism. Free T4 should then be measured; low fT4 confirms overt hypothyroidism. Anti-TPO antibodies (positive in ~95% of cases) indicate autoimmune aetiology (Hashimoto's thyroiditis), the most common cause in iodine-sufficient countries. Treatment: levothyroxine, dosed by weight (~1.6 mcg/kg/day), titrated to TSH within normal range. TSH monitoring 6 weeks after dose change.",
+    "domain": "diagnosis",
+    "item_id": "DIAG-03",
+    "judge_score": 4,
+    "agents_used": [
+      "diagnosis"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What are the ROME IV criteria for irritable bowel syndrome?",
+    "answer": "# Irritable Bowel Syndrome (IBS) & Rome IV Diagnostic Criteria\n\n### Clinical Profile\nThe patient presents with a chronic history (5 years) of gastrointestinal distress, potentially triggered by a suspected infectious foodborne illness. Key clinical features include:\n*   **Recurrent Abdominal Pain:** Occurs frequently, specifically at least one day per week.\n*   **Altered Bowel Habits:** Changes in stool consistency and frequency.\n*   **Chronicity:** Symptoms have persisted for five years, suggesting a chronic functional bowel disorder.\n\n### The Rome IV Criteria\nThe **Rome IV criteria** are the current gold standard for the symptom-based diagnosis of IBS [1, 2]. To meet these criteria, a patient must experience recurrent abdominal pain, on average, **at least one day per week** in the last three months, associated with **two or more** of the following:\n\n*   **Defecation:** Pain is related to the act of having a bowel movement.\n*   **Stool Frequency:** Pain is associated with a change in how often bowel movements occur.\n*   **Stool Form:** Pain is associated with a change in the appearance or consistency of the stool [1, 3].\n\n*Note: The Rome IV criteria are more restrictive than the previous Rome III version, specifically requiring the presence of abdominal pain rather than general \"discomfort\" to ensure diagnostic clarity [4].*\n\n### Diagnostic Approach & Differentials\nDiagnosis of IBS is primarily clinical, focusing on a thorough medical history and physical examination to rule out organic pathologies [5, 6].\n\n*   **Primary Differential:** **Irritable Bowel Syndrome (IBS)**. This is the most likely diagnosis given the recurrent pain, frequency of symptoms, and the history of a post-infectious trigger [1].\n*   **Exclusions:** It is essential to rule out other conditions that mimic IBS, such as:\n    *   Celiac Disease [6]\n    *   Inflammatory Bowel Disease (IBD) [6]\n    *   Other organic gastrointestinal pathologies [5]\n\n### Summary of Clinical Guidance\nThe absence of abdominal pain generally makes a diagnosis of IBS untenable [5]. The diagnostic process involves applying the structured Rome IV framework and ruling out secondary causes to confirm the condition as a functional gastrointestinal disorder [1, 7, 8].",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "ROME IV criteria (2016): Recurrent abdominal pain, on average at least 1 day per week in the last 3 months, associated with 2 or more of the following: (1) related to defecation; (2) associated with a change in frequency of stool; (3) associated with a change in form (appearance) of stool. Criteria fulfilled for the last 3 months with symptom onset at least 6 months prior to diagnosis. Subtypes based on Bristol stool form: IBS-C (constipation predominant), IBS-D (diarrhoea predominant), IBS-M (mixed), IBS-U (unclassified). Key: IBS is a diagnosis of exclusion \u2014 red flag symptoms (rectal bleeding, unintentional weight loss, nocturnal symptoms, family history of colorectal cancer, age >50 at new onset) warrant investigation before applying ROME IV.",
+    "domain": "diagnosis",
+    "item_id": "DIAG-04",
+    "judge_score": 4,
+    "agents_used": [
+      "diagnosis",
+      "pubmed"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "How do you differentiate Type 1 from Type 2 diabetes mellitus at initial presentation?",
+    "answer": "# Presymptomatic Type 1 Diabetes & Renal Considerations\n\n### Clinical Profile\n*   **Key Symptoms**: None explicitly mentioned.\n*   **Severity**: Mild (based on lack of explicit symptoms).\n*   **Patient Demographics/History**: Not provided.\n\n### Differential Diagnosis\n1.  **Presymptomatic Type 1 Diabetes Mellitus**: Primary consideration; characterized by the presence of the condition before the onset of clinical symptoms.\n2.  **Chronic Kidney Disease (CKD) Stage 3 (3A or 3B)**: Associated with Type 1 diabetes; necessitates renal function assessment.\n3.  **Hypertension**: Often comorbid with CKD Stage 3A/3B in patients with Type 1 diabetes.\n4.  **Insulin-Dependent Diabetes Mellitus**: Investigation required to determine specific type and presence of complications.\n5.  **Non-Insulin-Dependent Diabetes Mellitus**: Consider for comparative analysis to differentiate from Type 1.\n\n### Critical Red Flags\n*   **No immediate life-threatening conditions identified** based on the provided data.\n\n### Recommended Clinical Actions\n**Diagnostic Testing**\n*   **Metabolic Screening**: Check fasting plasma glucose and HbA1c levels.\n*   **Autoantibody Testing**: Evaluate for islet autoantibodies (e.g., GAD-65, insulin, IA-2, ZnT8) to differentiate between Type 1 and Type 2 diabetes [1].\n*   **Insulin Production**: Measure C-peptide levels to assess endogenous insulin production.\n*   **Renal & Cardiovascular Assessment**: Evaluate renal function (eGFR) and monitor blood pressure.\n\n**Specialist Referral**\n*   **Endocrinology**: Referral is recommended for definitive evaluation and management, particularly if the diagnosis remains uncertain.",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Key differentiating features: Type 1 (T1DM): typically younger onset (<30 years but can occur at any age), normal or low BMI, abrupt onset (days to weeks), presence of diabetic ketoacidosis at presentation common, positive islet autoantibodies (anti-GAD65 in ~75%, anti-IA2, ZnT8), low/undetectable C-peptide. Type 2 (T2DM): typically middle-aged/older, overweight/obese, insidious onset, strong family history, associated metabolic syndrome (HTN, dyslipidaemia), negative autoantibodies, normal/elevated C-peptide at diagnosis. Overlap: LADA (latent autoimmune diabetes in adults) mimics T2DM clinically but has positive GAD65 antibodies and progressive insulin dependence. Initial management diverges significantly: T1DM requires insulin; T2DM starts with lifestyle + metformin. C-peptide + anti-GAD antibodies are the most clinically useful tests when the diagnosis is uncertain.",
+    "domain": "diagnosis",
+    "item_id": "DIAG-05",
+    "judge_score": 4,
+    "agents_used": [
+      "diagnosis"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "A 2-year-old presents with sudden onset stridor, drooling, and high fever. What are the critical diagnoses to consider?",
+    "answer": "# Acute Upper Airway Obstruction: Clinical Evaluation\n\n***Disclaimer: This information is for clinical reasoning support and should be reviewed by a licensed medical professional. This is not a definitive diagnosis.***\n\n### Clinical Profile\nThe patient presents with a high-acuity respiratory distress pattern characterized by:\n*   **Sudden onset stridor:** High-pitched, turbulent airflow indicating upper airway obstruction.\n*   **Drooling:** Suggests severe dysphagia or inability to swallow secretions, often associated with supraglottic swelling.\n*   **High fever:** Indicates an acute inflammatory or infectious process.\n*   **Severity:** *High*. The combination of stridor and drooling is a medical emergency suggesting imminent airway compromise.\n\n### Differential Diagnosis\n\n**1. Epiglottitis**\n*   **Clinical Rationale:** Most consistent fit for the \"classic triad\" of stridor, drooling, and high fever. Sudden onset and drooling specifically point to supraglottic inflammation and airway obstruction [1, 2].\n\n**2. Bacterial Tracheitis**\n*   **Clinical Rationale:** Presents similarly to severe croup but with higher fever and a more toxic appearance; involves bacterial infection of the trachea causing severe stridor [3, 4].\n\n**3. Croup (Laryngotracheobronchitis)**\n*   **Clinical Rationale:** A common cause of stridor and fever in children, though typically characterized by a \"barking\" cough and is less likely to cause significant drooling [5, 2].\n\n**4. Foreign Body Aspiration**\n*   **Clinical Rationale:** Can cause sudden onset stridor and distress. Drooling may occur if the object is lodged in the pharynx/larynx; fever may occur secondary to aspiration pneumonia [6].\n\n### Critical Red Flags\nThe following life-threatening conditions must be ruled out immediately:\n*   **Complete Airway Obstruction:** Drooling and stridor suggest a critically narrowed airway. *Warning:* Attempting to visualize the throat (e.g., using a tongue depressor) in a non-controlled environment may trigger complete laryngospasm and total airway occlusion.\n*   **Septic Shock:** High fever and rapid respiratory progression may indicate systemic sepsis.\n*   **Respiratory Failure:** Impending exhaustion of respiratory muscles due to increased work of breathing.\n\n### Management & Next Steps\n\n**Immediate Priority**\n*   **Airway Management:** Maintain the patient in a position of comfort (e.g., sitting upright). **Avoid** agitation or invasive throat exams until a secure airway (intubation) is prepared by an anesthesiologist or ENT specialist.\n\n**Diagnostics**\n*   **Imaging:** Lateral neck X-ray (if stable) to evaluate for the \"thumbprint sign\" characteristic of epiglottitis.\n*   **Laboratory Analysis:** CBC with differential, C-reactive protein (CRP), and blood cultures to differentiate between viral (Croup) and bacterial (Epiglottitis/Tracheitis) etiologies.\n\n**Urgent Referrals**\n*   Immediate consultation with **Pediatric Intensive Care (PICU)** and **Otolaryngology (ENT)** for definitive airway management and diagnosis.",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Immediate life-threatening differentials: (1) Epiglottitis \u2014 classic triad of stridor, drooling, and fever; child appears toxic, sits in 'tripod position'; do NOT attempt throat examination or lay flat until airway secured; blood culture + IV antibiotics (ceftriaxone); urgent ENT/anaesthesia for airway management. (2) Croup (laryngotracheobronchitis) \u2014 barking cough, seal-like stridor, low-grade fever, typically preceded by URI; steeple sign on AP neck X-ray; managed with dexamethasone + nebulised adrenaline in moderate-severe cases. (3) Foreign body aspiration \u2014 sudden onset, afebrile, history of choking; unilateral wheeze/decreased breath sounds; rigid bronchoscopy required. (4) Bacterial tracheitis \u2014 high fever, purulent secretions, toxic appearance, pseudomembrane on airway. Key: stabilise airway first before any investigations in suspected epiglottitis.",
+    "domain": "diagnosis",
+    "item_id": "DIAG-06",
+    "judge_score": 4,
+    "agents_used": [
+      "diagnosis"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "A patient with longstanding Type 2 diabetes develops proteinuria of 1.2g/day and eGFR of 48. What are the differentials for the renal disease?",
+    "answer": "# Diabetic Nephropathy: Clinical Evaluation and Management\n\n### Clinical Profile\n*   **Key Symptoms:** Proteinuria and reduced eGFR (48).\n*   **Severity:** Moderate.\n*   **Patient History:** Longstanding Type 2 diabetes.\n\n### Differential Diagnosis\n**1. Diabetic Nephropathy**\nThe patient's history of longstanding Type 2 diabetes is a primary risk factor. The presentation of proteinuria and reduced eGFR is highly characteristic of this complication [1, 2].\n\n**2. Alternative Causes of Proteinuria and Reduced eGFR**\nOther conditions must be considered if diabetic nephropathy cannot be definitively confirmed, including:\n*   Various forms of glomerulonephritis (e.g., membranous nephropathy, minimal change disease, FSGS).\n*   Other systemic diseases affecting the kidneys [1, 2].\n\n### Critical Red Flags\n*   **Acute Kidney Injury (AKI):** Rapid decline in kidney function or acute symptoms superimposed on chronic kidney disease.\n*   **Rapidly Progressive Glomerulonephritis (RPGN):** A medical emergency characterized by rapid worsening of kidney function and severe proteinuria.\n*   **Severe Hypertension:** Uncontrolled blood pressure can significantly accelerate kidney damage in diabetic patients.\n\n### Recommended Next Steps\n\n**Diagnostic Confirmation**\n*   **Quantitative Testing:** Measure the *Urine Albumin-to-Creatinine Ratio (UACR)* to quantify albuminuria and confirm the eGFR of 48 using a reliable formula (e.g., CKD-EPI).\n*   **Protein Analysis:** Perform *Urine Protein Electrophoresis (UPEP)* to assess protein types.\n*   **Urinalysis:** Conduct a comprehensive urinalysis with microscopic examination for red blood cells (hematuria), white blood cells, and casts.\n*   **Kidney Biopsy:** Consider if the diagnosis remains uncertain, if there is a rapid decline in GFR, or if non-diabetic features (e.g., significant hematuria) are present.\n\n**Systemic Evaluation**\n*   **Laboratory Work:** Check HbA1c for glycemic control, serum creatinine, electrolytes, and signs of systemic disease (e.g., ANA, anti-GBM, complement levels).\n*   **Blood Pressure:** Implement rigorous monitoring to mitigate further kidney damage.\n\n**Specialist Care & Long-term Planning**\n*   **Nephrology Referral:** Highly recommended for expert evaluation and management.\n*   **Integrated Care:** Optimize diabetes management and blood pressure control.\n*   **RRT Assessment:** Evaluate the patient's overall health and eGFR to determine the future necessity of Renal Replacement Therapy (e.g., dialysis).",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Differential diagnosis for CKD in a T2DM patient: (1) Diabetic nephropathy (most likely) \u2014 occurs in 30-40% of T2DM patients, typically with diabetic retinopathy co-occurring (its absence should raise suspicion for alternative diagnosis), gradual progression, microalbuminuria preceding proteinuria by years. (2) Hypertensive nephrosclerosis \u2014 common comorbidity in T2DM; bland urine sediment, minimal proteinuria relative to eGFR decline. (3) IgA nephropathy \u2014 haematuria on urine dipstick is a clue. (4) Focal segmental glomerulosclerosis (FSGS). (5) Membranous nephropathy \u2014 nephrotic range proteinuria, positive anti-PLA2R antibody. Factors favouring non-diabetic CKD: absence of retinopathy, rapid eGFR decline, haematuria, proteinuria onset before 5 years of T2DM. Renal biopsy should be considered when non-diabetic CKD is suspected.",
+    "domain": "diagnosis",
+    "item_id": "DIAG-07",
+    "judge_score": 4,
+    "agents_used": [
+      "diagnosis"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "Evaluate this presentation: right upper quadrant pain, jaundice, and fever in a 45-year-old woman. What is the most likely diagnosis?",
+    "answer": "# Acute Cholangitis: Clinical Evaluation & Management\n\n### Clinical Profile\n*   **Severity**: Moderate\n*   **Presenting Symptoms**: Right upper quadrant (RUQ) pain, jaundice, and fever.\n\n### Differential Diagnosis\nThe patient presents with **Charcot's triad** (RUQ pain, jaundice, and fever), which is highly indicative of an infectious process within the biliary tree.\n\n1.  **Acute Cholangitis**: The most likely diagnosis. This involves infection and inflammation of the bile ducts, often secondary to obstruction [1].\n2.  **Choledocholithiasis with Cholangitis**: A gallstone lodged in the common bile duct causing obstruction; if this leads to infection, it manifests as acute cholangitis [2].\n3.  **Acute Hepatic Hepatitis**: Inflammation of the liver can cause RUQ pain and jaundice; however, the prominent fever makes an infectious biliary process more likely [3].\n4.  **Gallbladder Cholecystitis**: Inflammation of the gallbladder typically causes RUQ pain and fever, but jaundice is less common unless there is concomitant common bile duct obstruction [4].\n\n### Critical Red Flags\n*   **Sepsis/Septic Shock**: Acute cholangitis can rapidly progress to life-threatening systemic inflammatory response. Watch for hypotension, tachycardia, chills, and altered mental status.\n*   **Rapid Deterioration**: Increasing pain, worsening jaundice, or confusion indicates a critical progression toward sepsis.\n\n### Recommended Next Steps\n\n#### Laboratory Testing\n*   **Complete Blood Count (CBC)**: Evaluate for leukocytosis.\n*   **Liver Function Tests (LFTs)**: Assess bilirubin, AST, ALT, ALP, and GGT (elevated ALP and GGT often indicate biliary obstruction).\n*   **Blood Cultures**: Check for bacteremia, especially if sepsis is suspected.\n*   **Inflammatory Markers**: Measure CRP and ESR.\n\n#### Imaging\n*   **Abdominal Ultrasound**: Initial modality to evaluate the gallbladder and bile ducts for stones, wall thickening, or dilation.\n*   **MRCP**: Non-invasive detailed visualization of the biliary tree if ultrasound is inconclusive.\n*   **CT Scan**: Used if ultrasound is non-diagnostic or if abscesses are suspected.\n\n#### Specialist Consultations\n*   **Gastroenterology**: For definitive diagnosis and management, including potential ERCP.\n*   **Surgery**: For possible cholecystectomy or stone extraction.\n*   **Interventional Radiology**: Involved if drainage or stone removal is required.",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Charcot's triad (RUQ pain, fever, jaundice) is pathognomonic for ascending cholangitis, a biliary emergency. Most common cause: choledocholithiasis (gallstone in the common bile duct). Additional Reynolds' pentad (Charcot's triad + hypotension + altered mental status) indicates severe/suppurative cholangitis requiring urgent biliary decompression. Immediate management: IV fluids, blood cultures, IV antibiotics (piperacillin-tazobactam or cefuroxime + metronidazole), nil by mouth, urgent ERCP for biliary decompression within 24\u201348 hours (within 12 hours if severe). Differentials to exclude: acute cholecystitis (Murphy's sign, no jaundice unless Mirizzi syndrome), acute hepatitis (markedly elevated transaminases), liver abscess. Investigations: LFTs (elevated ALP, bilirubin, GGT), FBC (leucocytosis), blood cultures, abdominal ultrasound (biliary dilation, gallstones), MRCP if ultrasound equivocal.",
+    "domain": "diagnosis",
+    "item_id": "DIAG-08",
+    "judge_score": 4,
+    "agents_used": [
+      "diagnosis"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "A 35-year-old with fatigue, pallor, and splenomegaly has haemoglobin of 8g/dL with MCV 72. What are the differentials?",
+    "answer": "# Microcytic Anemia with Splenomegaly: Clinical Interpretation\n\n### Clinical Profile\n*   **Presenting Symptoms:** Fatigue, Pallor\n*   **Physical Findings:** Splenomegaly (Enlarged spleen)\n*   **Key Lab Findings:** \n    *   **Hemoglobin:** 8 g/dL (Low; moderate to severe anemia)\n    *   **MCV:** 72 fL (Low; microcytic red blood cells)\n    *   **Hematology:** Presence of variant lymphocytes, giant/large platelets, and band forms of neutrophils.\n\n### Clinical Significance\nThe combination of **microcytic anemia** and **splenomegaly** is a critical clinical cluster. While microcytosis is frequently associated with simple iron deficiency, the presence of an enlarged spleen suggests a more complex underlying pathology, such as hemolysis or an infiltrative process.\n\n### Differential Diagnosis\n*   **Thalassemia:** A primary consideration; microcytosis is often disproportionate to the degree of anemia, and splenomegaly occurs due to hemolysis and extramedullary hematopoiesis.\n*   **Hemolytic Anemia:** Chronic hemolytic states can lead to splenic enlargement; certain types may present with lower MCV.\n*   **Myeloproliferative Disorders / MDS:** Hematologic malignancies or myelodysplastic syndromes can cause anemia via bone marrow infiltration and significant splenomegaly. This is further supported by the presence of variant lymphocytes and abnormal platelet/neutrophil morphology.\n*   **Iron Deficiency Anemia (Severe):** While splenomegaly is less common in simple iron deficiency, it may occur in rare cases or comorbid conditions (e.g., portal hypertension).\n*   **Anemia of Chronic Disease:** May present as microcytic or normocytic; splenomegaly may occur if the underlying disease is systemic.\n\n### Recommended Diagnostic Actions\nTo narrow the differential diagnosis, the following steps are suggested:\n\n*   **Laboratory Testing:**\n    *   **Peripheral Blood Smear:** To examine cell morphology (e.g., target cells, schistocytes).\n    *   **Iron Studies:** Serum iron, ferritin, and TIBC to differentiate iron deficiency from anemia of chronic disease.\n    *   **Hemoglobin Electrophoresis:** Essential for confirming or ruling out Thalassemia.\n    *   **Reticulocyte Count:** To determine if the anemia is regenerative (hemolytic) or non-regenerative.\n*   **Imaging:**\n    *   **Abdominal Ultrasound:** To quantify the degree of splenomegaly and evaluate other organ involvement.\n*   **Specialist Referral:**\n    *   Immediate referral to a **Hematologist** for comprehensive management.",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Microcytic anaemia (MCV <80) with splenomegaly: differential prioritised by likelihood: (1) Thalassaemia (most likely with splenomegaly in young patient) \u2014 alpha or beta thalassaemia trait or intermedia; Hb electrophoresis shows elevated HbA2 (>3.5%) in beta thal; target cells and basophilic stippling on blood film. (2) Iron deficiency anaemia \u2014 commonest cause of microcytic anaemia overall; splenomegaly less typical; low ferritin (<30 ng/mL), low serum iron, high TIBC. (3) Haemoglobin E disease \u2014 common in South/Southeast Asian populations; mild anaemia, microcytosis, splenomegaly. (4) Sideroblastic anaemia \u2014 ring sideroblasts on bone marrow biopsy; high serum iron, elevated ferritin. (5) Anaemia of chronic disease \u2014 usually normocytic/mild microcytic; high ferritin, low TIBC, low serum iron. Key investigations: peripheral blood film, serum ferritin, iron studies, Hb electrophoresis, reticulocyte count.",
+    "domain": "diagnosis",
+    "item_id": "DIAG-09",
+    "judge_score": 5,
+    "agents_used": [
+      "diagnosis",
+      "report_analyzer"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What are the diagnostic criteria for metabolic syndrome?",
+    "answer": "# Metabolic Syndrome: Clinical Profile & Differential Diagnosis\n\n### Clinical Profile\nThe patient presents with a constellation of symptoms suggestive of **metabolic syndrome**. The severity is currently moderate, impacting daily functioning without causing acute distress. Key clinical findings include:\n\n*   **Metabolic & Weight Indicators:** \n    *   Difficulty losing weight, specifically focused on abdominal adiposity.\n    *   Increased hunger (polyphagia).\n*   **Dermatological Markers:** \n    *   Potential presence of skin tags or *acanthosis nigricans* (dark, velvety patches typically found in the neck or armpits).\n*   **Systemic & Neurological Symptoms:**\n    *   Persistent fatigue and sluggishness.\n    *   Mood swings and irritability.\n    *   Sleep disturbances, including insomnia or excessive daytime sleepiness.\n    *   Headaches or dizziness.\n*   **Other Potential Indicators:**\n    *   Reproductive issues (e.g., irregular periods or fertility challenges in women).\n    *   Cardiovascular symptoms such as shortness of breath or chest pain.\n\n### Differential Diagnosis\n\n**Primary Diagnosis: Metabolic Syndrome**\nThis is the most likely diagnosis given the combination of abdominal obesity, fatigue, hunger, and dermatological changes. Metabolic syndrome is a cluster of conditions\u2014including high blood pressure, high blood sugar, abnormal cholesterol levels, and high triglycerides\u2014that collectively increase the risk of heart disease, stroke, and type 2 diabetes.",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "ATP III (NCEP) / AHA-NHLBI criteria (3 of 5 required): (1) Waist circumference >102cm (men) or >88cm (women) [ethnicity-specific thresholds apply for Asian populations: >90cm men, >80cm women]; (2) Serum triglycerides \u2265150 mg/dL (1.7 mmol/L) or on drug treatment for hypertriglyceridaemia; (3) HDL-C <40 mg/dL men or <50 mg/dL women, or on drug treatment; (4) Blood pressure \u2265130/85 mmHg or on antihypertensive drug treatment; (5) Fasting plasma glucose \u2265100 mg/dL (5.6 mmol/L) or on drug treatment for hyperglycaemia. IDF 2006 criteria require central obesity as mandatory criterion. Metabolic syndrome confers ~2\u00d7 risk of ASCVD and 5\u00d7 risk of T2DM. Treatment: lifestyle modification first; individual risk factors treated per respective guidelines.",
+    "domain": "diagnosis",
+    "item_id": "DIAG-10",
+    "judge_score": 4,
+    "agents_used": [
+      "diagnosis"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What is the mechanism of action of metformin and why is it first-line for Type 2 diabetes?",
+    "answer": "# Metformin: Clinical Profile and First-Line Therapy for Type 2 Diabetes\n\n### Overview and Clinical Utility\nMetformin is the established first-line pharmacologic agent for the treatment of Type 2 Diabetes Mellitus (T2DM) [1, 2, 3]. It is preferred as an initial therapy due to its robust glucose-lowering effects, well-established safety profile, cost-effectiveness, and lack of hypoglycemia when used as monotherapy [1, 4]. Additionally, it is generally weight-neutral or may lead to modest weight loss [1].\n\n### Mechanisms of Action\nWhile the full complexity of metformin's action is still being researched, its primary therapeutic effects include:\n*   **Reduction of Hepatic Glucose Output:** The major glucose-lowering effect is mediated through the inhibition of hepatic gluconeogenesis (the process by which the liver produces glucose from non-carbohydrate sources) [1, 4].\n*   **Energy Metabolism Modulation:** Metformin activates **AMPK** (Adenosine Monophosphate-Activated Protein Kinase) and inhibits mitochondrial respiratory chain complex 1, placing energy metabolism at the center of its clinical action [5, 6, 7].\n*   **Pleiotropic Effects:** Beyond glycemic control, the drug may reduce reactive oxygen species production and advanced glycation end products [8].\n\n### Safety and Contraindications\n#### Common Side Effects\n*   **Gastrointestinal Distress:** Nausea, diarrhea, abdominal pain, and loss of appetite are common, particularly during treatment initiation or dose escalation, though these typically diminish over time [1].\n*   **Vitamin B12 Deficiency:** Long-term utilization may decrease B12 absorption, necessitating periodic monitoring and supplementation [1].\n\n#### Serious Risks and Warnings\n*   **Lactic Acidosis:** A rare but severe complication. Risk is elevated in patients with renal impairment, liver disease, or those consuming excessive alcohol [1].\n*   **Hypoglycemia:** Very low risk when used alone; however, risk increases when metformin is combined with insulin or sulfonylureas [1].\n\n#### Contraindications\nMetformin is contraindicated in patients with:\n*   Severe or unstable renal impairment (typically **eGFR < 30 mL/min/1.73m\u00b2**) [1].\n*   Acute or chronic metabolic acidosis [1].\n*   Conditions that predispose the patient to lactic acidosis [1].\n\n***\n\n*Disclaimer: Consult a healthcare professional before making any medication changes.*",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Metformin is a biguanide that primarily reduces hepatic glucose production by activating AMP-activated protein kinase (AMPK), which inhibits gluconeogenesis and glycogenolysis. Secondary mechanisms: enhanced peripheral insulin sensitivity, reduced intestinal glucose absorption, possible gut microbiome modulation. It does not stimulate insulin secretion and therefore does not cause hypoglycaemia as monotherapy. First-line rationale: (1) Extensive 50+ year safety record; (2) UKPDS showed cardiovascular mortality benefit in obese T2DM independent of glycaemic control; (3) Weight neutral or mild weight loss; (4) Low cost (generic); (5) Low hypoglycaemia risk. Contraindications: eGFR <30 mL/min/1.73m\u00b2 (use with caution eGFR 30\u201345); iodinated contrast media \u2014 hold 48 hours; severe hepatic impairment; active alcohol misuse. Side effects: GI (nausea, diarrhoea \u2014 take with food, use extended-release formulation); rare lactic acidosis in contraindicated patients.",
+    "domain": "pharmacology",
+    "item_id": "PHARM-01",
+    "judge_score": 5,
+    "agents_used": [
+      "pharmacology",
+      "pubmed"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What are the major drug interactions between warfarin and commonly co-prescribed medications?",
+    "answer": "# Warfarin: Drug-Drug Interactions & Safety Management\n\n**Warfarin** is a medication with a *narrow therapeutic index*, meaning small changes in dosage or the introduction of interacting substances can lead to significant clinical consequences. It is metabolized via the cytochrome P450 system (specifically CYP 2C9, 1A2, and 3A4) and exhibits high protein binding.\n\n### Key Drug & Supplement Interactions\nThere are approximately 692 known interactions with warfarin, categorized as 182 major, 437 moderate, and 73 minor.\n\n*   **NSAIDs (e.g., Ibuprofen):**\n    *   *Risk:* Significantly increases the risk of gastrointestinal bleeding and interferes with platelet function.\n*   **Antimicrobials (Antibiotics and Antifungals):**\n    *   *Risk:* Agents such as Fluconazole can alter warfarin metabolism or affect vitamin K-producing gut flora, potentially increasing the International Normalized Ratio (INR) and bleeding risk.\n*   **Herbal Supplements:**\n    *   **St. John\u2019s Wort:** A moderate interaction that may alter pharmacokinetics and decrease warfarin's effectiveness, potentially increasing the risk of thromboembolic events (clots).\n    *   **Ginkgo Biloba:** Identified as a supplement that can cause complications when co-administered with warfarin.\n\n### Clinical Safety Warnings\n*   **High Risk:** Use of NSAIDs or potent antibiotics/antifungals can lead to severe bleeding. Specifically, any medication that inhibits **CYP 2C9** can lead to toxic levels of warfarin.\n*   **Moderate Risk:** St. John's Wort may reduce the drug's efficacy, increasing the risk of clotting.\n*   **Monitoring Requirements:** Due to the high volume of interactions, any new medication, supplement, or significant dietary change requires **close monitoring of the INR** to allow for precise dosage adjustments.\n\n***Disclaimer:** Consult a healthcare professional before making any medication changes.*",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Warfarin has narrow therapeutic index with numerous clinically significant interactions. Major INR-increasing interactions (increased bleeding risk): NSAIDs (displace protein binding, GI bleeding risk), aspirin (antiplatelet + displacement), fluconazole/azole antifungals (CYP2C9 inhibition), amiodarone (CYP2C9 + CYP3A4 inhibition), ciprofloxacin/metronidazole (gut flora reduction \u2192 less vitamin K), cranberry juice (CYP2C9). Major INR-decreasing interactions (thrombosis risk): rifampicin (CYP induction), carbamazephan/phenytoin (CYP induction), St John's Wort. Vitamin K dietary inconsistency (green leafy vegetables) also affects stability. Management: close INR monitoring when initiating/stopping interacting drugs; consider switching to DOACs where appropriate (fewer interactions, predictable pharmacokinetics).",
+    "domain": "pharmacology",
+    "item_id": "PHARM-02",
+    "judge_score": 5,
+    "agents_used": [
+      "pharmacology"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What are the contraindications and dose adjustments needed for lisinopril in renal impairment?",
+    "answer": "# Lisinopril Contraindications and Renal Safety\n\n### Clinical Overview\nLisinopril is contraindicated in patients with significant renal impairment, typically defined as a **creatinine clearance (CrCl) of less than 30 mL/min**. This restriction is primarily due to the increased risk of developing *hyperkalemia* and *acute kidney injury*.\n\n### Dosing Guidelines for Renal Impairment\nDose adjustments are required based on the patient's kidney function:\n*   **CrCl < 30 mL/min:** Contraindicated.\n*   **CrCl 30\u201350 mL/min:** Dose reduction is necessary.\n*   **CrCl 10\u201330 mL/min:** Potential for further dose reduction, particularly if the patient is concurrently taking medications that increase potassium levels.\n*   **General Guidance:** Dosages should be lowered based on the patient's estimated glomerular filtration rate (eGFR).\n\n### Critical Safety Warnings\n*   **Hyperkalemia:** Risk of elevated potassium levels is high in patients with renal impairment or those using potassium supplements and NSAIDs.\n*   **Acute Kidney Injury (AKI):** May cause a significant decrease in kidney function, especially in patients with pre-existing renal disease.\n*   **Hypotension:** Low blood pressure may occur, particularly during treatment initiation or following a dose increase.\n*   **Angioedema:** Risk of swelling in the face, lips, tongue, throat, or other body parts.\n\n***\n\n*Disclaimer: Consult a healthcare professional before making any medication changes.*",
+    "contexts": [
+      "{\"agent\": \"pharmacology\", \"refined_query\": null}"
+    ],
+    "ground_truth": "Lisinopril is an ACE inhibitor. Renal considerations: Contraindications: bilateral renal artery stenosis, unilateral stenosis in a solitary kidney (risk of acute kidney injury), history of ACE inhibitor-induced angioedema, pregnancy (all trimesters \u2014 teratogenic). Dose adjustments by eGFR: eGFR >30: standard dosing (2.5\u201310mg/day for heart failure; 5\u201340mg/day for hypertension); eGFR 10\u201330: start at 2.5\u20135mg/day, titrate cautiously, monitor potassium and creatinine closely; eGFR <10 or dialysis: not recommended (reduced renal clearance, unpredictable levels). Monitoring: check eGFR and K+ at 1\u20132 weeks after initiation and dose changes. A rise in serum creatinine up to 30% from baseline is acceptable and expected (intrarenal haemodynamic effect); >30% rise warrants stopping or dose reduction. Hyperkalaemia risk heightened with co-prescription of spironolactone, NSAIDs, or potassium supplements.",
+    "domain": "pharmacology",
+    "item_id": "PHARM-03",
+    "judge_score": 5,
+    "agents_used": [
+      "pharmacology"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What are the side effects and monitoring requirements for atorvastatin?",
+    "answer": "# Atorvastatin: Clinical Guidance & Safety Profile\n\n### Overview\nAtorvastatin is an **HMG-CoA reductase inhibitor (statin)** indicated for the reduction of cholesterol and triglycerides to mitigate the risk of cardiovascular events.\n\n### Adverse Effects & Risk Factors\nThe primary safety concern associated with Atorvastatin is **muscle-related toxicity**, which can range from mild myalgia to severe **rhabdomyolysis**. Severe muscle breakdown may lead to acute kidney injury and, in rare instances, death.\n\n*Risk factors that increase the likelihood of myopathy include:*\n*   Age $\\ge$ 65 years\n*   Hypothyroidism\n*   Renal impairment\n*   Use of high-dose therapy\n*   Concomitant use of interacting medications\n\n### Clinical Monitoring\nTo ensure patient safety and therapeutic efficacy, the following monitoring protocols are recommended:\n*   **Lipid Assessment:** LDL-C levels should be evaluated when clinically appropriate (as early as 4 weeks after initiation) to guide dosage adjustments.\n*   **Toxicity Screening:** Regular assessment for signs of muscle toxicity or liver dysfunction.\n*   **Specialized Assessment:** For patients co-prescribed with protease inhibitors, clinical assessment is required to ensure the lowest effective dose is utilized to minimize risk.\n\n### Contraindications & Precautions\n*   **Drug Interactions:** Increased risk of rhabdomyolysis is associated with the use of certain antifungals, cyclosporine, and HIV medications.\n*   **High-Intensity Dosing:** Careful dose titration is recommended for high-intensity regimens (40\u201380 mg) in accordance with ACC/AHA guidelines.\n*   **Patient Vigilance:** Heightened monitoring is required for patients with pre-existing renal impairment or hypothyroidism.\n\n***\n\n*Disclaimer: Consult a healthcare professional before making any medication changes.*",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Atorvastatin (HMG-CoA reductase inhibitor) side effects: Common: myalgia (5\u201310% of patients), elevated liver enzymes, GI symptoms (nausea, diarrhoea), headache. Serious: Myopathy/rhabdomyolysis \u2014 risk increases with high doses, co-prescription of fibrates (especially gemfibrozil), ciclosporin, macrolide antibiotics, azole antifungals, niacin; presenting as severe muscle pain, weakness, elevated CK, myoglobinuria; rare (<1:10,000). Statin-associated autoimmune myopathy (SAIM): anti-HMGCR antibodies; rare but persistent after statin discontinuation. New-onset diabetes (modest increased risk ~10%). Monitoring: Baseline LFTs before starting; recheck at 12 weeks, then annually if stable. CK only if symptomatic (routine CK monitoring not recommended by most guidelines). Discontinue if CK >5\u00d7 ULN or unexplained severe myalgia. Transaminase elevation >3\u00d7 ULN is rare (<1%) at standard doses \u2014 hold if persistent.",
+    "domain": "pharmacology",
+    "item_id": "PHARM-04",
+    "judge_score": 5,
+    "agents_used": [
+      "pharmacology"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "How does insulin glargine differ from regular insulin in terms of pharmacokinetics and clinical use?",
+    "answer": "# Insulin Glargine vs. Regular Insulin: Clinical Comparison\n\n### Pharmacokinetic Profiles\nThe primary distinction between these two insulins lies in their absorption rates and duration of action:\n\n*   **Insulin Glargine (Lantus, Basaglar)**\n    *   *Type:* Long-acting insulin analog.\n    *   *Onset/Peak:* Slow onset with a relatively flat, low-amplitude peak concentration.\n    *   *Duration:* Prolonged action, typically lasting **12\u201316 hours**.\n    *   *Formulation:* Delivered as a suspension that dissolves slowly in the body.\n\n*   **Regular Insulin (Humulin R, NovoLIN R)**\n    *   *Type:* Short-acting insulin.\n    *   *Onset/Peak:* Rapid absorption with a high peak typically occurring within **1\u20132 hours**.\n    *   *Duration:* Shorter action, typically lasting **6\u20138 hours**.\n    *   *Formulation:* Delivered as a solution.\n\n### Clinical Applications\nThe choice of insulin depends on whether the patient requires \"basal\" (background) or \"bolus\" (mealtime/correction) coverage.\n\n*   **Basal Therapy:** \n    *   **Insulin Glargine** is primarily used for steady background glycemic control between meals and overnight. It is indicated for Type 2 diabetes requiring long-term control or as the long-acting component for Type 1 diabetes.\n    *   **Regular Insulin** can also be used for basal coverage (e.g., bedtime doses).\n*   **Bolus & Correction Therapy:** \n    *   **Regular Insulin** is utilized for prandial (mealtime) coverage and the rapid correction of hyperglycemia (high blood sugar), often in response to illness or specific glucose spikes.\n\n### Summary Comparison Table\n\n| Feature | Regular Insulin | Insulin Glargine |\n| :--- | :--- | :--- |\n| **Onset** | Rapid (1\u20132 hours) | Slow (12\u201316 hours) |\n| **Peak** | High Peak | Low/Flat Peak |\n| **Duration** | Short (6\u20138 hours) | Long (12\u201316 hours) |\n| **Primary Use** | Basal & Bolus | Basal |\n| **Formulation** | Solution | Suspension |\n\n### Safety and Monitoring\nBoth insulin types carry similar clinical risks and requirements:\n\n*   **Hypoglycemia:** Risk of low blood sugar if doses are excessive, meals are missed, or physical activity increases.\n*   **Hypersensitivity:** Potential for allergic reactions ranging from mild rashes to severe anaphylaxis.\n*   **Local Reactions:** Possible redness, swelling, or pain at the injection site.\n*   **Clinical Monitoring:** Consistent blood glucose monitoring is essential to calibrate dosages and prevent glycemic instability.\n\n***Disclaimer:** Consult a healthcare professional before making any medication changes to ensure personalized care based on specific medical history.*",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Regular insulin (soluble insulin): Onset 30\u201360 min, peak 2\u20134 hours, duration 4\u20138 hours. Must be given 30 minutes before meals. Can be given IV in DKA. Insulin glargine (Lantus, Basaglar): Long-acting basal insulin. Onset 1\u20132 hours, no significant peak, duration ~24 hours (glargine U-300 up to 36 hours). Mechanism of prolonged action: forms a microprecipitate at subcutaneous injection site (due to shift from acidic pH in vial to physiologic pH in tissue), slow gradual absorption. Once daily subcutaneous injection (same time each day); cannot be given IV; cannot be mixed with other insulins. Clinical use: provides background basal insulin coverage (fasting + overnight); combined with rapid-acting insulin at meals (basal-bolus regimen) or used alone in T2DM with oral agents. Glargine U-300 (Toujeo): same molecule, more concentrated, slightly longer duration, less injection site variability. Do not substitute units across formulations without prescriber guidance.",
+    "domain": "pharmacology",
+    "item_id": "PHARM-05",
+    "judge_score": 5,
+    "agents_used": [
+      "pharmacology"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What is the half-life of amiodarone and what monitoring is required for long-term use?",
+    "answer": "# Amiodarone: Clinical Overview and Monitoring\n\n**Amiodarone** is a potent antiarrhythmic medication indicated for the treatment of serious irregular heartbeats. It is administered either as an oral tablet (*Cordarone*) or via intravenous injection (*Pacerone*).\n\n### Pharmacokinetics and Monitoring\nDue to its extensive tissue distribution and slow elimination, amiodarone possesses a notably long half-life, typically ranging from **40 to 60 days** [1, 2, 3, 4]. \n\nBecause of this prolonged half-life and the risk of drug accumulation, long-term therapy requires rigorous monitoring:\n*   **Serum Level Testing:** Monitoring is generally recommended every 1\u20132 weeks during the initial treatment phase, transitioning to every 2\u20134 weeks thereafter [8, 10].\n*   **Therapeutic Range:** The goal is typically to maintain serum levels between **2.0-5.0 mg/L**, though this may vary based on the specific clinical indication [8].\n\n### Safety Warnings and Toxicity\nLong-term use of amiodarone is associated with significant systemic side effects, necessitating regular clinical screening to detect toxicity early [8, 11].\n\n*   **Organ Toxicity:**\n    *   *Pulmonary:* Potential for pulmonary fibrosis.\n    *   *Hepatic:* Risk of liver toxicity and cirrhosis.\n    *   *Endocrine:* May cause thyroid dysfunction (both hypothyroidism and hyperthyroidism).\n    *   *Other:* Potential for skin reactions and ocular (eye) problems [7, 8].\n*   **Drug Interactions:** Amiodarone may interact with other heart rhythm medications, specific antibiotics, antivirals, and grapefruit juice, which can alter the efficacy or safety of the treatment [5, 6].\n\n***Disclaimer:** Consult a healthcare professional before making any medication changes.*",
+    "contexts": [
+      "{\"agent\": \"pharmacology\", \"refined_query\": \"amiodarone half-life monitoring\"}"
+    ],
+    "ground_truth": "Amiodarone half-life: extremely long, ranging from 40\u201355 days (range 26\u2013107 days). This means: (1) onset of action is delayed (days to weeks for oral loading); (2) drug effect persists weeks to months after discontinuation; (3) drug interactions persist long after stopping. Toxicity monitoring (annual minimum for stable patients): Thyroid (TSH, fT4, fT3) \u2014 amiodarone contains 37% iodine by weight; causes hypothyroidism (~6%) and hyperthyroidism (~3%); monitor every 6 months. Pulmonary (CXR annually, PFTs if symptomatic) \u2014 amiodarone pulmonary toxicity (ARDS-like, insidious; mortality 10\u201320% if untreated). Hepatic (LFTs every 6 months) \u2014 hepatotoxicity, cirrhosis. Ophthalmology (annual slit-lamp exam) \u2014 corneal microdeposits (almost universal, usually asymptomatic) and optic neuropathy (rare, sight-threatening). Skin \u2014 photosensitivity (sunscreen mandatory); slate-grey discolouration with prolonged use. Neurological \u2014 peripheral neuropathy, tremor, ataxia.",
+    "domain": "pharmacology",
+    "item_id": "PHARM-06",
+    "judge_score": 5,
+    "agents_used": [
+      "pharmacology"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What are the indications and dosing for heparin bridging therapy?",
+    "answer": "# Heparin Bridging Therapy: Clinical Overview\n\n### Clinical Summary\nHeparin bridging therapy is utilized to maintain anticoagulation in patients who must temporarily discontinue long-term oral anticoagulants (such as Warfarin or Direct Oral Anticoagulants - DOACs), typically prior to surgical or invasive procedures. The primary objective is to prevent thromboembolic events during the window of interruption.\n\n### Pharmacological Management\n\n#### 1. Heparin Modalities & Dosing\nThe selection of heparin and the corresponding dosage are determined by the patient's weight, thrombotic risk, and current anticoagulation levels (e.g., INR for warfarin).\n\n*   **Low Molecular Weight Heparin (LMWH):**\n    *   *Preferred* due to predictable pharmacokinetics and reduced monitoring requirements.\n    *   **Half-therapeutic dose:** Approximately 1 mg/kg body weight.\n    *   **Subtherapeutic dose:** Approximately 0.6 mg/kg body weight; typically reserved for low-risk patients or specific conditions (e.g., LVAD).\n*   **Unfractionated Heparin (UFH):**\n    *   **Half-therapeutic dose:** A dose lower than standard therapeutic levels but higher than basic heparinization, often calculated to achieve 30-40% of the target INR.\n\n#### 2. Monitoring and Duration\n*   **UFH Monitoring:** Requires frequent assessment of **activated partial thromboplastin time (aPTT)** to ensure the patient remains within the therapeutic range.\n*   **LMWH Monitoring:** Routine monitoring is generally not required, though it is indicated for patients with renal impairment, obesity, or pregnancy.\n*   **Duration:** Varies from several hours to multiple days, depending on the procedure type and patient-specific risk factors.\n\n### Safety and Contraindications\n\n***Critical Warnings***\n*   **Hemorrhage Risk:** As an anticoagulant, heparin significantly increases the risk of bleeding; vigilant monitoring is mandatory.\n*   **Heparin-Induced Thrombocytopenia (HIT):** A serious immune-mediated drop in platelet count; more common with UFH than LMWH.\n*   **H-ALSI:** Heparin-Induced Acute Lung Injury is a rare but severe complication associated with LMWH.\n\n**Contraindications:**\n*   Active bleeding.\n*   Severe renal impairment.\n*   Known history of HIT.\n\n**Drug Interactions:**\n*   Potential for increased INR when used with Warfarin.\n*   Increased bleeding risk when combined with NSAIDs or certain antibiotics.\n\n### Clinical Guidelines\n*   **Perioperative Care:** Per AAFP and NICE guidelines, clinicians must perform a rigorous risk assessment of the patient's thromboembolic risk versus the procedure's bleeding risk.\n*   **Warfarin Protocols:** Bridging involves strict INR monitoring and the potential use of Vitamin K for reversal if necessary.\n\n*Disclaimer: Consult a healthcare professional before making any medication changes.*",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Heparin bridging (perioperative anticoagulation): Indications \u2014 patients on warfarin with HIGH thromboembolic risk who require interruption for surgery/procedure: mechanical mitral valve, mechanical aortic valve + additional risk factors (AF, prior stroke, low EF), AF with prior stroke/TIA, VTE within 3 months. Bridging NOT recommended for: low-to-moderate risk AF (CHADS2 \u22644), bioprosthetic valves, VTE >3 months ago \u2014 BRIDGE trial (NEJM 2015) showed no increase in thromboembolism with no bridging in AF, with significant reduction in bleeding. Protocol: Stop warfarin 5 days pre-procedure; start therapeutic LMWH (e.g., enoxaparin 1mg/kg SC BD) when INR subtherapeutic; last LMWH dose 24 hours before procedure (therapeutic) or 12 hours (prophylactic); restart warfarin evening of/after procedure; bridge with prophylactic LMWH until INR therapeutic. DOACs do not require bridging \u2014 simply hold for procedure-specific interval.",
+    "domain": "pharmacology",
+    "item_id": "PHARM-07",
+    "judge_score": 5,
+    "agents_used": [
+      "pharmacology"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "Can ibuprofen be safely co-prescribed with prednisone, and what are the risks?",
+    "answer": "# Ibuprofen and Prednisone: Interaction and Clinical Guidance\n\n### Overview\nIbuprofen and Prednisone can be co-prescribed; however, there is a **moderate drug interaction** between the two. The primary concern is the synergistic effect these medications have on certain organ systems, particularly the gastrointestinal tract and kidneys.\n\n### Clinical Risks & Mechanisms\n\n*   **Gastrointestinal (GI) System:** \n    *   Both NSAIDs (Ibuprofen) and corticosteroids (Prednisone) can irritate the GI lining.\n    *   Concurrent use significantly increases the risk of **stomach irritation, peptic ulcers, and GI bleeding**.\n*   **Renal Function:** \n    *   Both medications can impair kidney function. This risk is acutely elevated in patients with pre-existing renal disease.\n*   **Metabolic Impact:** \n    *   Prednisone can cause an increase in blood glucose levels, which requires close monitoring in patients with diabetes.\n\n### High-Risk Factors\nThe risk of adverse events is heightened if the following conditions are present:\n*   **Duration & Dosage:** Use of NSAIDs for more than 10 days or at high doses.\n*   **Medical History:** A history of ulcers or prior GI bleeding.\n*   **Comorbidities:** Pre-existing kidney disease or diabetes.\n*   **Concomitant Substances:** Alcohol consumption or the use of other GI-risk medications (e.g., anticoagulants, antiplatelets, or SSRIs).\n\n### Management & Monitoring\nIf this combination is clinically necessary, it must be administered under close professional supervision with the following considerations:\n*   **Symptom Monitoring:** Vigilance for signs of GI distress, such as stomach pain, nausea, or heartburn.\n*   **Lab Monitoring:** Periodic assessment of kidney function and blood sugar levels.\n*   **Risk-Benefit Analysis:** Careful weighing of the anti-inflammatory benefits against the potential for systemic toxicity.\n\n***\n\n**Disclaimer:** *This information is for clinical guidance and is not a substitute for professional medical advice. Consult a healthcare provider for personalized treatment plans.*",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Co-prescription of ibuprofen (NSAID) with prednisone (corticosteroid) significantly increases gastrointestinal risk and is generally to be avoided without gastroprotection. Risks: (1) GI ulceration and bleeding \u2014 both agents independently increase GI mucosal injury; combined use multiplies risk ~15-fold compared to either alone (per observational data). NSAIDs inhibit COX-1-dependent prostaglandin synthesis (mucosal protection); corticosteroids impair mucosal repair. (2) Fluid retention and oedema \u2014 both can cause sodium/water retention; additive effect. (3) Hypertension worsening \u2014 both agents raise BP via fluid retention. (4) Renal impairment \u2014 NSAIDs reduce renal prostaglandin synthesis; combined with steroids can precipitate AKI. (5) Hyperkalaemia risk in renal impairment. If analgesia is needed during corticosteroid therapy: prefer paracetamol; if NSAID unavoidable, add a PPI (omeprazole or lansoprazole) for gastroprotection and use the lowest effective NSAID dose for the shortest duration.",
+    "domain": "pharmacology",
+    "item_id": "PHARM-08",
+    "judge_score": 5,
+    "agents_used": [
+      "pharmacology"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What is the recommended SGLT2 inhibitor for heart failure with preserved ejection fraction?",
+    "answer": "# Heart Failure with Preserved Ejection Fraction (HFpEF): Clinical Management\n\n### First-Line Pharmacological Therapy\n**SGLT2 (Sodium-Glucose Cotransporter 2) inhibitors** are recommended as the foundational, first-line therapy for patients with HFpEF [1, 2, 3, 4, 5]. They are utilized primarily to reduce the risk of heart failure hospitalizations and cardiovascular death, while improving overall patient quality of life and functional outcomes [1, 6, 7].\n\n**Recommended Agents:**\n*   **Empagliflozin:** Validated by the *EMPEROR-Preserved* trial [1].\n*   **Dapagliflozin:** Validated by the *DELIVER* trial [1, 8].\n\n### Clinical Evidence & Guidelines\n*   **Guideline Strength:** According to the 2022 AHA/ACC/HFSA Guidelines, SGLT2 inhibitors carry a stronger recommendation (**2a**) for HFmrEF/HFpEF compared to other agents such as ARNIs, ACE inhibitors, ARBs, MRAs, and beta-blockers, which carry weaker (**2b**) recommendations for this specific population [1].\n*   **Systematic Findings:** Meta-analyses and systematic reviews confirm robust reductions in the composite of cardiovascular death or heart failure hospitalization, primarily driven by a significant decrease in hospitalization rates [1, 5].\n*   **International Consensus:** Key therapies for HFpEF are aligned across major health organizations, including the European Society of Cardiology (ESC), the Taiwan Society of Cardiology, and the American Heart Association (AHA) [4, 9, 10].\n\n### Safety & Clinical Considerations\n*   **Medication Review:** Clinicians should conduct a comprehensive review of all current medications to ensure no drugs are being utilized that may exacerbate heart failure [1].\n*   **Monitoring:** While generally well-tolerated, SGLT2 inhibitors require monitoring for potential risks, including:\n    *   *Hypoglycemia* (particularly when used in conjunction with other glucose-lowering agents).\n    *   *Ketoacidosis*.\n*   **Renal Protection:** Implementing guideline-directed medical therapy (GDMT), including SGLT2 inhibitors, is critical for mitigating potential renal effects in heart failure patients [11].\n\n***",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Empagliflozin and dapagliflozin are both now indicated for heart failure with preserved ejection fraction (HFpEF, EF \u226550%). EMPEROR-Preserved (NEJM 2021): empagliflozin 10mg reduced the composite of cardiovascular death or worsening heart failure by 21% (HR 0.79, p<0.001); benefit driven primarily by reduction in hospitalisation for HF. DELIVER (NEJM 2022): dapagliflozin 10mg reduced worsening HF or CV death by 18% (HR 0.82, p<0.001) in patients with LVEF >40%. Both agents approved for HFpEF: empagliflozin by FDA (August 2022) and dapagliflozin by FDA (May 2022). ESC and ACC/AHA guidelines now give a Class IIa recommendation for SGLT2 inhibitors in HFpEF. Dosing: both 10mg once daily. Renal threshold: avoid initiating if eGFR <20\u201325 mL/min/1.73m\u00b2 depending on agent; continue if eGFR falls during treatment per updated guidance.",
+    "domain": "pharmacology",
+    "item_id": "PHARM-09",
+    "judge_score": 5,
+    "agents_used": [
+      "pharmacology",
+      "pubmed"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What is the mechanism and clinical use of tocilizumab?",
+    "answer": "# Tocilizumab: Clinical Profile and Applications\n\n### Overview\n**Tocilizumab** is a humanized monoclonal antibody designed to target the **Interleukin-6 (IL-6) receptor**. It is primarily utilized to manage specific systemic inflammatory conditions.\n\n### Mechanism of Action\n*   **Pathways:** Tocilizumab binds to the IL-6 receptor, effectively preventing the pro-inflammatory cytokine IL-6 from binding to its target cells.\n*   **Effect:** By blocking this pathway, the medication reduces the overall inflammatory response and alleviates associated clinical symptoms.\n\n### Clinical Indications\nTocilizumab is approved for the treatment of:\n*   **Rheumatoid Arthritis (RA):** Indicated for adults who have shown an inadequate response to conventional synthetic disease-modifying antirheumatic drugs (csDMARDs) or anti-TNF agents.\n*   **Juvenile Idiopathic Arthritis (JIA):** Specifically for polyarticular or systemic JIA in pediatric patients aged 2 years and older.\n*   **Cytokine Release Syndrome (CRS):** Used for severe CRS in adults and children following specific immunotherapies (e.g., monoclonal antibody therapy).\n\n### Safety and Precautions\n*   ***Infection Risk:*** Increased susceptibility to serious bacterial, viral, and fungal infections.\n*   ***Immune Response:*** Potential for the development of new autoimmune diseases or the exacerbation of existing ones.\n*   ***Hypersensitivity:*** Risk of allergic reactions, ranging from mild to severe.\n*   ***Systemic Risks:***\n    *   Potential for liver injury.\n    *   Increased risk of venous thromboembolism (serious blood clots).\n    *   Potential for increased risk of heart failure.\n\n***Disclaimer:** Consult a healthcare professional before making any medication changes.*",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Tocilizumab is a humanised monoclonal antibody targeting the IL-6 receptor (both membrane-bound and soluble forms), blocking IL-6 signalling. IL-6 is a pro-inflammatory cytokine central to the cytokine storm. Clinical uses: (1) Rheumatoid arthritis \u2014 biologic DMARD, SC weekly or IV every 4 weeks; used for moderate-severe RA inadequately controlled by MTX. (2) Giant cell arteritis \u2014 EULAR/ACR recommended, SC weekly or every 2 weeks. (3) Cytokine release syndrome (CRS) \u2014 FDA-approved for CAR-T/immunotherapy-induced CRS; single IV dose 8mg/kg (max 800mg), repeated if no response in 8 hours. (4) COVID-19 \u2014 RECOVERY trial (NEJM 2021) and REMAP-CAP demonstrated mortality benefit in hospitalised COVID-19 with hypoxia + systemic inflammation (elevated CRP \u226575mg/L); standard of care in combination with dexamethasone. Monitoring: LFTs (transaminase elevation), neutropenia, reactivation of latent TB/hepatitis B (screen before starting), bowel perforation risk (diverticular disease caution).",
+    "domain": "pharmacology",
+    "item_id": "PHARM-10",
+    "judge_score": 4,
+    "agents_used": [
+      "pharmacology"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What medications is the patient currently prescribed?",
+    "answer": "### Patient Clinical Profile & Pharmacological Analysis\n\n**Patient Demographics & History**\n*   **Age:** \\<PERSON_1\\>\n*   **Sex:** \\<PERSON_1\\>\n*   **Blood Type:** \\<PERSON_1\\>\n*   **Allergies:** \\<PERSON_1\\>\n*   **Active Diagnoses:** \\<PERSON_1\\>\n\n**Vitals & Clinical Assessment**\n*   **Current Vitals:** \\<PERSON_1\\>\n*   **Flagged Abnormalities:** \\<PERSON_1\\>\n*   **Trends:** \\<PERSON_1\\>\n*   **Risk Factors:** \\<PERSON_1\\>\n*   **Comorbidity Insights:** \\<PERSON_1\\>\n\n**Medication Review**\nThe patient has a history of exposure to the following drug classes and specific agents:\n\n*   ***Antipsychotics & Neurologicals:*** Olanzapine, Valproate, Carbamazepine, and Dopamine antagonists.\n*   ***Cardiovascular Agents:*** Hydralazine and Calcium channel blockers.\n*   ***Metabolic, Hormonal & Anti-infectives:*** Exogenous androgens, Sodium glucose transport (SGLT) inhibitors, and Aminoglycosides.\n\n**Pharmacological Safety Considerations**\n*   ***CNS Monitoring:*** The concurrent use of multiple CNS agents (Olanzapine, Valproate, Carbamazepine) necessitates close monitoring for metabolic changes and additive sedation.\n*   ***Hemodynamic Risk:*** Combined use of Hydralazine and Calcium channel blockers may increase the risk of hypotension.\n*   ***Renal Surveillance:*** Aminoglycoside administration requires regular monitoring of renal function due to potential nephrotoxicity.\n\n**Clinical Recommendations**\n*   **Follow-up Actions:** \\<PERSON_1\\>\n*   **Safety Checks:** \\<PERSON_1\\>\n*   **Therapy Gaps:** \\<PERSON_1\\>\n*   **Polypharmacy Flags:** \\<PERSON_1\\>",
+    "contexts": [
+      "{\"agent\": \"patient\", \"refined_query\": \"patient identifier\"}\n\n{\"agent\": \"pharmacology\", \"refined_query\": \"patient medication list\"}"
+    ],
+    "ground_truth": "Retrieve from patient record. Expected: the agent queries the patient database and returns the active medication list for the current session's patient context, including drug name, dose, frequency, and prescriber notes.",
+    "domain": "patient",
+    "item_id": "PATIENT-01",
+    "judge_score": 3,
+    "agents_used": [
+      "patient",
+      "pharmacology"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "Does this patient have any documented drug allergies?",
+    "answer": "### Patient Clinical Summary\n\n**Patient Demographics**\n*   **Age:** <PERSON_1>\n*   **Sex:** <PERSON_1>\n*   **Blood Type:** <PERSON_1>\n*   **Allergies:** <PERSON_1>\n\n**Clinical History**\n*   **Active Diagnoses:** <PERSON_1>\n\n**Vitals Assessment**\n*   **Current Vitals:** <PERSON_1>\n*   **Flagged Abnormalities:** <PERSON_1>\n*   **Trends:** <PERSON_1>\n\n**Medication Review**\n*   **Safety Checks:** <PERSON_1>\n*   **Therapy Gaps:** <PERSON_1>\n*   **Polypharmacy Flags:** <PERSON_1>\n\n**Clinical Analysis**\n*   **Risk Factors:** <PERSON_1>\n*   **Comorbidity Insights:** <PERSON_1>\n\n**Recommendations**\n*   **Suggested Follow-up Actions:** <PERSON_1>\n\n---\n> \u26a0\ufe0f **Clinical Disclaimer**: This response has been flagged by our quality reviewer for potential inaccuracies or incomplete information. Please consult a qualified healthcare professional before acting on this information. *(Quality Score: 1/5 \u2014 The response does not directly address the query about documented drug allergies, instead providing a summary of patient demographics and clinical history.)*",
+    "contexts": [
+      "{\"agent\": \"patient\", \"refined_query\": \"patient identifier\"}"
+    ],
+    "ground_truth": "Retrieve from patient record. Expected: the agent returns documented allergies with reaction type (e.g. anaphylaxis, rash, GI intolerance) and the causative agent.",
+    "domain": "patient",
+    "item_id": "PATIENT-02",
+    "judge_score": 1,
+    "agents_used": [
+      "patient"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What is the patient's most recent blood pressure reading?",
+    "answer": "### Patient Clinical Profile\n\n**Demographics**\n*   **Age:** <PERSON_1>\n*   **Sex:** <PERSON_1>\n*   **Blood Type:** <PERSON_1>\n*   **Allergies:** <PERSON_1>\n\n**Clinical History & Analysis**\n*   **Active Diagnoses:** <PERSON_1>\n*   **Risk Factors:** <PERSON_1>\n*   **Comorbidity Insights:** <PERSON_1>\n\n**Vitals Assessment**\n*   **Current Vitals:** <PERSON_1>\n*   **Flagged Abnormalities:** <PERSON_1>\n*   **Trends:** <PERSON_1>\n\n**Medication Review**\n*   **Safety Checks:** <PERSON_1>\n*   **Therapy Gaps:** <PERSON_1>\n*   **Polypharmacy Flags:** <PERSON_1>\n\n**Recommendations**\n*   **Suggested Follow-up Actions:** <PERSON_1>\n\n---\n> \u26a0\ufe0f **Clinical Disclaimer**: This response has been flagged by our quality reviewer for potential inaccuracies or incomplete information. Please consult a qualified healthcare professional before acting on this information. *(Quality Score: 1/5 \u2014 The response does not directly address the query about the patient's most recent blood pressure reading, instead providing a generic patient profile with placeholders.)*",
+    "contexts": [
+      "{\"agent\": \"patient\", \"refined_query\": \"patient identifier\"}"
+    ],
+    "ground_truth": "Retrieve from patient record. Expected: the agent returns the most recent vital sign entry including BP value (systolic/diastolic), date/time recorded.",
+    "domain": "patient",
+    "item_id": "PATIENT-03",
+    "judge_score": 1,
+    "agents_used": [
+      "patient"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "Summarise the patient's active diagnoses.",
+    "answer": "**Patient Profile & Clinical Summary**\n\n**Demographics**\n*   **Age:** <PERSON_1>\n*   **Sex:** <PERSON_1>\n*   **Blood Type:** <PERSON_1>\n*   **Allergies:** <PERSON_1>\n\n**Clinical History**\n*   *Active Diagnoses:* <PERSON_1>\n\n**Vitals Assessment**\n*   **Current Vitals:** <PERSON_1>\n*   **Flagged Abnormalities:** <PERSON_1>\n*   **Trends:** <PERSON_1>\n\n**Medication Review**\n*   **Safety Checks:** <PERSON_1>\n*   **Therapy Gaps:** <PERSON_1>\n*   **Polypharmacy Flags:** <PERSON_1>\n\n**Clinical Analysis**\n*   **Risk Factors:** <PERSON_1>\n*   **Comorbidity Insights:** <PERSON_1>\n\n**Recommendations**\n*   **Follow-up Actions:** <PERSON_1>\n\n---\n> \u26a0\ufe0f **Clinical Disclaimer**: This response has been flagged by our quality reviewer for potential inaccuracies or incomplete information. Please consult a qualified healthcare professional before acting on this information. *(Quality Score: 2/5 \u2014 The response partially addresses the query by providing a clinical summary, but it contains significant errors or unsupported claims due to the presence of PII placeholders and lack of actual diagnoses.)*",
+    "contexts": [
+      "{\"agent\": \"patient\", \"refined_query\": \"patient identifier\"}"
+    ],
+    "ground_truth": "Retrieve from patient record. Expected: the agent returns all active conditions with ICD codes where available, diagnosis date, and current status.",
+    "domain": "patient",
+    "item_id": "PATIENT-04",
+    "judge_score": 2,
+    "agents_used": [
+      "patient"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What is the patient's HbA1c trend over the past year?",
+    "answer": "***Error: Patient Record Not Found***\n\nThe system was unable to retrieve clinical data for the specified patient identifier. Please verify the **patient name** or **ID** and attempt the query again.",
+    "contexts": [
+      "{\"agent\": \"patient\", \"refined_query\": \"patient identifier\"}"
+    ],
+    "ground_truth": "Retrieve from patient record. Expected: the agent returns sequential HbA1c values with dates to allow trend interpretation (improving, worsening, stable).",
+    "domain": "patient",
+    "item_id": "PATIENT-05",
+    "judge_score": 5,
+    "agents_used": [
+      "patient"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "Has this patient had any hospitalisations in the last 12 months?",
+    "answer": "**Patient Demographics**\n*   **Age:** <AGE_1>\n*   **Sex:** <SEX_1>\n*   **Blood Type:** <BLOOD_TYPE_1>\n*   **Allergies:** <ALLERGIES_1>\n\n**Clinical History**\n*   **Active Diagnoses:** <ACTIVE_DIAGNOSES_1>\n\n**Vitals Assessment**\n*   **Current Vitals:** <VITALS_1>\n*   **Flagged Abnormalities:** <FLAGGED_ABNORMALITIES_1>\n*   **Trends:** <TRENDS_1>\n\n**Medication Review**\n*   **Safety Checks:** <SAFETY_CHECKS_1>\n*   **Therapy Gaps:** <THERAPY_GAPS_1>\n*   **Polypharmacy Flags:** <POLYPHARMACY_FLAGS_1>\n\n**Clinical Analysis**\n*   **Risk Factors:** <RISK_FACTORS_1>\n*   **Comorbidity Insights:** <COMORBIDITY_INSIGHTS_1>\n\n**Recommendations**\n*   **Suggested Follow-up Actions:** <RECOMMENDATIONS_1>\n\n---\n> \u26a0\ufe0f **Clinical Disclaimer**: This response has been flagged by our quality reviewer for potential inaccuracies or incomplete information. Please consult a qualified healthcare professional before acting on this information. *(Quality Score: 1/5 \u2014 The response does not directly address the query about hospitalizations in a specific date and time, instead providing a comprehensive patient profile.)*",
+    "contexts": [
+      "{\"agent\": \"patient\", \"refined_query\": \"patient identifier\"}"
+    ],
+    "ground_truth": "Retrieve from patient record. Expected: the agent returns hospitalisation history with dates, reason for admission, and discharge diagnosis.",
+    "domain": "patient",
+    "item_id": "PATIENT-06",
+    "judge_score": 1,
+    "agents_used": [
+      "patient"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What blood type is recorded for this patient?",
+    "answer": "***Patient Data Unavailable***\n\nNo patient records were found for the specified identifier. Please verify the patient name or ID and try again to retrieve the clinical history, vitals, and medication review.",
+    "contexts": [
+      "{\"agent\": \"patient\", \"refined_query\": \"patient blood type\"}"
+    ],
+    "ground_truth": "Retrieve from patient record. Expected: the agent returns the ABO/Rh blood type on record.",
+    "domain": "patient",
+    "item_id": "PATIENT-07",
+    "judge_score": 3,
+    "agents_used": [
+      "patient"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "Does the patient have a documented advance directive or DNR order?",
+    "answer": "***Error: Patient Record Not Found***\n\nNo patient records were located for **\\<PERSON_1\\>**. Please verify the patient name or identification number and attempt the query again.",
+    "contexts": [
+      "{\"agent\": \"patient\", \"refined_query\": \"patient identifier\"}"
+    ],
+    "ground_truth": "Retrieve from patient record. Expected: the agent returns whether a DNR/DNAR or advance care plan is documented, with the date of documentation.",
+    "domain": "patient",
+    "item_id": "PATIENT-08",
+    "judge_score": 5,
+    "agents_used": [
+      "patient"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What surgical procedures has this patient previously undergone?",
+    "answer": "### Patient Profile: <PERSON_1>\n\n**Demographics & Clinical Baseline**\n*   **Age:** <PERSON_1>\n*   **Sex:** <PERSON_1>\n*   **Blood Type:** <PERSON_1>\n*   **Allergies:** <PERSON_1>\n*   **Active Diagnoses:** <PERSON_1>\n\n**Clinical Assessment**\n*   **Vitals:** Current readings are listed as <PERSON_1>.\n*   **Observations:** Flagged abnormalities and trends are noted as <PERSON_1>.\n*   **Risk Profile:** Identified risk factors and comorbidity insights include <PERSON_1>.\n\n**Medication Review**\n*   **Safety & Compliance:** Safety checks, therapy gaps, and polypharmacy flags are recorded as <PERSON_1>.\n\n**Clinical Recommendations**\n*   **Follow-up Actions:** <PERSON_1>\n\n---\n> \u26a0\ufe0f **Clinical Disclaimer**: This response has been flagged by our quality reviewer for potential inaccuracies or incomplete information. Please consult a qualified healthcare professional before acting on this information. *(Quality Score: 2/5 \u2014 The response partially addresses the query by providing patient demographics and clinical information, but it does not directly answer the question about previous surgical procedures.)*",
+    "contexts": [
+      "{\"agent\": \"patient\", \"refined_query\": \"patient identifier\"}"
+    ],
+    "ground_truth": "Retrieve from patient record. Expected: the agent returns the procedural history with dates and operative notes where available.",
+    "domain": "patient",
+    "item_id": "PATIENT-09",
+    "judge_score": 2,
+    "agents_used": [
+      "patient"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What are the patient's current vital sign trends?",
+    "answer": "",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Retrieve from patient record. Expected: the agent returns recent vital sign series (BP, HR, SpO2, temperature, respiratory rate) with dates to enable trend analysis.",
+    "domain": "patient",
+    "item_id": "PATIENT-10",
+    "judge_score": null,
+    "agents_used": [],
+    "node_timings": {},
+    "faithfulness": null,
+    "context_precision": null
+  },
+  {
+    "question": "Analyse the attached CBC report and flag any critical values.",
+    "answer": "",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Expected: the agent extracts structured lab values from the report (WBC, RBC, Hgb, Hct, MCV, MCH, MCHC, PLT, differential), compares each against reference ranges, and flags any values outside normal limits with clinical context. Critical values (e.g. WBC >30\u00d710\u2079/L, Hgb <7g/dL, PLT <50\u00d710\u2079/L) flagged with \u26a0\ufe0f and recommended follow-up action.",
+    "domain": "report_analyzer",
+    "item_id": "REPORT-01",
+    "judge_score": null,
+    "agents_used": [],
+    "node_timings": {},
+    "faithfulness": null,
+    "context_precision": null
+  },
+  {
+    "question": "What does this chest X-ray report indicate about the lung fields?",
+    "answer": "",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Expected: the agent extracts radiological findings (consolidation, effusion, pneumothorax, cardiomegaly, hilar changes, interstitial pattern) from the report or image, provides anatomical localisation, indicates severity, and summarises the radiologist impression.",
+    "domain": "report_analyzer",
+    "item_id": "REPORT-02",
+    "judge_score": null,
+    "agents_used": [],
+    "node_timings": {},
+    "faithfulness": null,
+    "context_precision": null
+  },
+  {
+    "question": "Summarise the key findings from this renal function panel.",
+    "answer": "*Insufficient data provided for clinical interpretation. Please provide the actual medical report or scan data for analysis.*",
+    "contexts": [
+      "{\"agent\": \"report_analyzer\", \"refined_query\": null}"
+    ],
+    "ground_truth": "Expected: the agent extracts urea, creatinine, eGFR, electrolytes (Na, K, Cl, HCO3), and flags: elevated creatinine/reduced eGFR (CKD staging), hyperkalaemia, hyponatraemia, metabolic acidosis (low bicarb). Each abnormal result contextualised clinically.",
+    "domain": "report_analyzer",
+    "item_id": "REPORT-03",
+    "judge_score": 5,
+    "agents_used": [
+      "report_analyzer"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What medication changes were made at discharge according to this discharge summary?",
+    "answer": "***Insufficient Data for Clinical Analysis***\n\nCurrently, the required discharge summary documentation has not been provided. To perform a comprehensive review of medication changes and clinical transitions, the following information is necessary:\n\n*   **Complete Discharge Summary:** To identify specific adjustments to the patient's pharmaceutical regimen.\n*   **Previous Medication List:** To compare baseline treatments against discharge orders.\n\nOnce the documentation is available, the system will analyze the text to extract and summarize all medication modifications made at the time of discharge.",
+    "contexts": [
+      "{\"agent\": \"pharmacology\", \"refined_query\": \"discharge summary missing\"}\n\n{\"agent\": \"report_analyzer\", \"refined_query\": null}"
+    ],
+    "ground_truth": "Expected: the agent extracts medications started (new), stopped (discontinued), dose-changed, or continued from the discharge summary, structured as a reconciliation list with reason for each change.",
+    "domain": "report_analyzer",
+    "item_id": "REPORT-04",
+    "judge_score": 3,
+    "agents_used": [
+      "pharmacology",
+      "report_analyzer"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "Are there any abnormal liver function test results in this panel?",
+    "answer": "### Bile Acid Lab Analysis\n\n**Clinical Summary**\nThe provided laboratory report focuses on **Bile Acid levels**, which are currently identified as being *outside the normal reference range*.\n\n**Clinical Significance**\nAbnormal bile acid levels are clinically significant and may be associated with several underlying conditions, including:\n*   **Liver Disease:** Impairment in the liver's ability to process or secrete bile.\n*   **Gallbladder Disease:** Obstructions or dysfunction within the biliary system.\n*   **Metabolic Disorders:** Specific systemic disruptions affecting bile acid synthesis or transport.\n\n**Recommendations**\n*   **Further Investigation:** Additional diagnostic testing and clinical evaluation are required to determine the precise underlying cause of the abnormal levels.",
+    "contexts": [
+      ""
+    ],
+    "ground_truth": "Expected: the agent extracts ALT, AST, ALP, GGT, bilirubin (total/direct), albumin, total protein from the report, flags values outside reference range, and provides pattern interpretation (hepatocellular vs. cholestatic injury, severity grading).",
+    "domain": "report_analyzer",
+    "item_id": "REPORT-05",
+    "judge_score": 4,
+    "agents_used": [
+      "report_analyzer"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "Identify any consolidation or effusion on this CT chest report.",
+    "answer": "### Clinical Documentation Requirement\n\nCurrently, the **CT chest report** and associated **image data** are missing from the record. A structured clinical interpretation cannot be performed without the necessary diagnostic inputs.\n\n**Required Actions:**\n*   **Report Text:** Please provide the full text of the radiology report.\n*   **Imaging:** Please upload the relevant image files for analysis.\n\n*Note: Analysis will proceed immediately upon receipt of either the report text or the imaging data.*",
+    "contexts": [
+      "{\"agent\": \"report_analyzer\", \"refined_query\": null}"
+    ],
+    "ground_truth": "Expected: the agent extracts radiological findings specifically relating to consolidation (location, lobe, density, extent) and pleural effusion (side, size estimate, loculated or free-flowing), and summarises clinical significance.",
+    "domain": "report_analyzer",
+    "item_id": "REPORT-06",
+    "judge_score": 3,
+    "agents_used": [
+      "report_analyzer"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What does this lipid panel show and what are the cardiovascular risk implications?",
+    "answer": "### Clinical Profile\nThe patient has not undergone a lipid screening test. The patient explicitly declined the laboratory test; therefore, their current lipid profile (including total cholesterol, HDL-C, triglycerides, and calculated LDL-C) remains unknown.\n\n### Clinical Assessment\n\n**Primary Findings**\n*   **Lipid Screening Status:** Not performed due to patient refusal.\n*   **Cardiovascular Risk Assessment:** Currently impossible to quantify based on lipid levels due to the lack of available data.\n*   **Red Flags:** No immediate life-threatening conditions or critical red flags identified from the available information.\n\n**Clinical Significance**\nThe absence of a lipid panel prevents the calculation of the LDL/HDL and cholesterol/HDL ratios, which are essential for accurately assessing the risk of Coronary Artery Disease (CAD). The patient's refusal may stem from a lack of concern regarding cardiovascular risk factors or a preference for lifestyle management over clinical testing.\n\n### Suggested Next Steps\n\n**Patient Engagement & Education**\n*   **Discuss Benefits:** Engage the patient in a conversation regarding the importance of lipid screening and how these results inform cardiovascular risk assessment.\n*   **Address Concerns:** Explore the patient's reasons for refusal and address any specific concerns regarding the laboratory process.\n*   **Holistic Evaluation:** Evaluate the patient's overall health profile\u2014including age, family history, smoking status, blood pressure, and diabetes status\u2014to determine the urgency of the screening.\n\n**Clinical Action (Should Patient Consent)**\n*   **Perform Screening:** If the patient reconsideres, proceed with the lipid screening test following the *PhenX - lipid profile protocol 040201*.\n*   **Documentation:** Ensure the following components are documented:\n    *   Total cholesterol\n    *   HDL-C\n    *   Triglycerides\n    *   Calculated LDL-C\n*   **Risk Calculation:** Utilize the documented results to calculate relevant ratios (LDL/HDL and cholesterol/HDL) to establish a formal cardiovascular risk profile.",
+    "contexts": [
+      "{\"agent\": \"diagnosis\", \"refined_query\": \"lipid panel results\"}\n\n{\"agent\": \"report_analyzer\", \"refined_query\": null}"
+    ],
+    "ground_truth": "Expected: the agent extracts total cholesterol, LDL-C, HDL-C, triglycerides, non-HDL-C, LDL/HDL ratio; flags values above/below targets per ACC/AHA guidelines; contextualises against risk level (primary vs. secondary prevention) if available.",
+    "domain": "report_analyzer",
+    "item_id": "REPORT-07",
+    "judge_score": 5,
+    "agents_used": [
+      "diagnosis",
+      "report_analyzer"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "Summarise the MRI brain findings from this radiology report.",
+    "answer": "***Notice:*** Data Input Required\n\nThe system is currently unable to provide a clinical interpretation as the **MRI brain radiology report** or **scan images** were not provided in the input.\n\n**Required Action:**\n* Please upload the text of the radiology report.\n* Alternatively, provide the digital image files of the MRI scan.\n\nOnce the necessary data is submitted, a structured clinical interpretation will be generated.",
+    "contexts": [
+      "{\"agent\": \"report_analyzer\", \"refined_query\": null}"
+    ],
+    "ground_truth": "Expected: the agent extracts key MRI brain findings: white matter changes, lesion characteristics (size, location, signal characteristics on T1/T2/FLAIR/DWI), mass effect, midline shift, enhancement pattern, ventricular system, and radiologist impression.",
+    "domain": "report_analyzer",
+    "item_id": "REPORT-08",
+    "judge_score": 3,
+    "agents_used": [
+      "report_analyzer"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "Extract all abnormal values from this comprehensive metabolic panel.",
+    "answer": "# Comprehensive Metabolic Panel (CMP) Results\n\n### **Electrolytes & Fluid Balance**\n*   **Sodium:** 138 mEq/L\n*   **Potassium:** 4.1 mEq/L\n*   **Chloride:** 101 mEq/L\n*   **Carbon Dioxide:** 24 mEq/L\n\n### **Renal Function & Metabolic Waste**\n*   **BUN / Urea Nitrogen:** 18 mg/dL\n*   **Creatinine:** 0.9 mg/dL\n*   **eGFR:** 90 mL/min/1.73 m\u00b2\n*   **Glucose:** 96 mg/dL\n\n### **Liver Function & Proteins**\n*   **ALT:** 25 U/L\n*   **AST:** 25 U/L\n*   **Alkaline Phosphatase:** 50 U/L\n*   **Total Bilirubin:** 0.7 mg/dL\n*   **Total Protein:** 7.1 g/dL\n*   **Albumin:** 4.0 g/dL\n*   **Globulin:** 3.1 g/dL\n\n### **Minerals**\n*   **Calcium:** 9.5 mg/dL\n*   **Magnesium:** 1.8 mg/dL\n*   **Phosphorus:** 3.0 mg/dL",
+    "contexts": [
+      "{\"agent\": \"report_analyzer\", \"refined_query\": \"comprehensive metabolic panel\"}"
+    ],
+    "ground_truth": "Expected: the agent extracts all CMP components (Na, K, Cl, HCO3, BUN, creatinine, eGFR, glucose, calcium, total protein, albumin, total bilirubin, ALP, ALT, AST), identifies abnormals with reference range comparison, and flags any critical values.",
+    "domain": "report_analyzer",
+    "item_id": "REPORT-09",
+    "judge_score": 4,
+    "agents_used": [
+      "report_analyzer"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  },
+  {
+    "question": "What are the main conclusions of this echocardiography report?",
+    "answer": "*Unable to provide clinical interpretation at this time.*\n\nTo proceed with a structured analysis, please provide the **actual echocardiography report text** or the **scan imagery**. Once the data is available, a comprehensive clinical interpretation will be generated.",
+    "contexts": [
+      "{\"agent\": \"report_analyzer\", \"refined_query\": null}"
+    ],
+    "ground_truth": "Expected: the agent extracts LVEF (%), LV size and function, diastolic function grade, valvular findings (stenosis/regurgitation severity), pericardial effusion, RV function, RVSP estimate, and the overall echocardiographic conclusion and clinical recommendation.",
+    "domain": "report_analyzer",
+    "item_id": "REPORT-10",
+    "judge_score": 3,
+    "agents_used": [
+      "report_analyzer"
+    ],
+    "node_timings": {},
+    "faithfulness": NaN,
+    "context_precision": NaN
+  }
+]

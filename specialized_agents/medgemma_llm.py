@@ -1,7 +1,7 @@
 import json as _json
 import logging
-import requests
 from typing import Any, Dict, Iterator, List, Optional
+import httpx
 from langchain_core.language_models.llms import LLM
 from langchain_core.callbacks.manager import CallbackManagerForLLMRun
 from langchain_core.outputs import GenerationChunk
@@ -9,6 +9,13 @@ from pydantic import Field
 from config import settings
 
 logger = logging.getLogger("MedGemmaLLM")
+
+# Shared persistent HTTP client — reuses TCP connections across all MedGemma calls.
+# Thread-safe; limits per-host connections to avoid overwhelming RunPod workers.
+_http_client = httpx.Client(
+    limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+    timeout=None,  # per-request timeout set at call site
+)
 
 
 def _runpod_auth_headers() -> Dict[str, str]:
@@ -99,8 +106,9 @@ class MedGemmaLLM(LLM):
         headers = _runpod_auth_headers()
 
         try:
-            response = requests.post(
-                self.api_url, json=payload, headers=headers, timeout=self.timeout
+            response = _http_client.post(
+                self.api_url, json=payload, headers=headers,
+                timeout=self.timeout,
             )
             response.raise_for_status()
             text_output = _unwrap_response(response.json())
@@ -112,8 +120,7 @@ class MedGemmaLLM(LLM):
 
             return text_output
 
-        except requests.exceptions.RequestException as e:
-            # MedGemma is offline / cold-starting / timing out — fall back to Gemma3:1b
+        except httpx.HTTPError as e:
             logger.warning(
                 f"MedGemma server unreachable ({e}). Falling back to Gemma3:1b (Ollama)."
             )
@@ -126,15 +133,18 @@ class MedGemmaLLM(LLM):
             from langchain_ollama import ChatOllama
             from langchain_core.messages import HumanMessage, SystemMessage
 
-            fallback = ChatOllama(
-                model=settings.OLLAMA_CLOUD_MODEL,
-                temperature=1.0,
-                top_p=0.95,
-                top_k=64,
-                num_predict=self.max_tokens,
-                base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
-                timeout=settings.OLLAMA_TIMEOUT_SECONDS,
-            )
+            # Reuse cached fallback instance — ChatOllama is stateless between calls
+            if not hasattr(self, "_fallback_llm") or self._fallback_llm is None:
+                object.__setattr__(self, "_fallback_llm", ChatOllama(
+                    model=settings.OLLAMA_CLOUD_MODEL,
+                    temperature=1.0,
+                    top_p=0.95,
+                    top_k=64,
+                    num_predict=self.max_tokens,
+                    base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
+                    timeout=settings.OLLAMA_TIMEOUT_SECONDS,
+                ))
+            fallback = self._fallback_llm
 
             if "New input:" in prompt:
                 parts = prompt.split("New input:")
@@ -190,14 +200,14 @@ class MedGemmaLLM(LLM):
 
         try:
             accumulated = ""
-            with requests.post(
-                stream_url, json=payload, headers=headers, timeout=self.timeout, stream=True
+            with _http_client.stream(
+                "POST", stream_url, json=payload, headers=headers, timeout=self.timeout
             ) as resp:
                 resp.raise_for_status()
                 for raw_line in resp.iter_lines():
                     if not raw_line:
                         continue
-                    line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+                    line = raw_line
                     if not line.startswith("data: "):
                         continue
                     data = line[len("data: "):]
@@ -229,7 +239,7 @@ class MedGemmaLLM(LLM):
                         run_manager.on_llm_new_token(token_text)
                     yield chunk
 
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.warning(f"MedGemma streaming failed ({e}). Falling back to _call.")
             full_text = self._call(prompt, stop=stop, run_manager=run_manager, **kwargs)
             yield GenerationChunk(text=full_text)

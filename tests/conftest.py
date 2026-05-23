@@ -155,7 +155,12 @@ def _preload_orchestrator():
     Without this, any test that wraps orchestrator import inside patch.dict(sys.modules)
     will unload spacy on context exit. The next import then re-executes weasel's schema
     class body, triggering a pydantic v1 duplicate-validator ConfigError.
+
+    REDIS_URL is blanked before import so agent constructors skip the Redis ping
+    (which hangs 120s on WSL when Redis is not running).
     """
+    import os
+    os.environ.setdefault("REDIS_URL", "")
     import orchestrator  # noqa: F401
 
 

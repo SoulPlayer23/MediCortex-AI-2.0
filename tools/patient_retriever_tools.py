@@ -31,6 +31,27 @@ _DATABASE_URL = os.getenv(
     "postgresql+asyncpg://postgres:postgres@localhost:5432/medicortex",
 ).replace("postgresql+asyncpg://", "postgresql://")
 
+# Shared connection pool — created once, reused across all tool calls.
+# min_size=1 keeps one warm connection ready; max_size=5 prevents overloading
+# Postgres under concurrent agent requests.
+_pool: Optional[asyncpg.Pool] = None
+_pool_lock = asyncio.Lock()
+
+
+async def _get_pool() -> asyncpg.Pool:
+    global _pool
+    if _pool is not None:
+        return _pool
+    async with _pool_lock:
+        if _pool is None:
+            _pool = await asyncpg.create_pool(
+                _DATABASE_URL,
+                min_size=1,
+                max_size=5,
+                command_timeout=10,
+            )
+    return _pool
+
 
 # ── Database helpers ─────────────────────────────────────────────────────────
 
@@ -52,8 +73,8 @@ def _parse_row(row) -> dict:
 
 async def _fetch_patient_async(real_identifier: str) -> Optional[dict]:
     """Query patients table by full_name (case-insensitive) or patient_id."""
-    conn = await asyncpg.connect(_DATABASE_URL)
-    try:
+    pool = await _get_pool()
+    async with pool.acquire() as conn:
         row = await conn.fetchrow(
             """
             SELECT * FROM patients
@@ -71,8 +92,6 @@ async def _fetch_patient_async(real_identifier: str) -> Optional[dict]:
             f"%{real_identifier}%",
         )
         return _parse_row(row) if row else None
-    finally:
-        await conn.close()
 
 
 def _fetch_patient(real_identifier: str) -> Optional[dict]:
@@ -139,13 +158,19 @@ def _format_record(record: dict, placeholder: str) -> str:
 
     lines.append("")
     lines.append("### Diagnoses")
-    for d in record["diagnoses"]:
-        lines.append(f"- {d['condition']} (Since: {d['diagnosed']}, Status: {d['status']})")
+    for d in record.get("diagnoses") or []:
+        condition = d.get("condition", "Unknown")
+        diagnosed = d.get("diagnosed", "N/A")
+        status = d.get("status", "N/A")
+        lines.append(f"- {condition} (Since: {diagnosed}, Status: {status})")
 
     lines.append("")
     lines.append("### Current Medications")
-    for m in record["medications"]:
-        lines.append(f"- {m['name']} {m['dosage']} — {m['frequency']}")
+    for m in record.get("medications") or []:
+        name = m.get("name", "Unknown")
+        dosage = m.get("dosage", "")
+        frequency = m.get("frequency", "N/A")
+        lines.append(f"- {name} {dosage} — {frequency}".strip())
 
     return "\n".join(lines)
 
