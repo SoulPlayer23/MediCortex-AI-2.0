@@ -310,8 +310,8 @@ class TestChatWithAttachments:
 
     @pytest.fixture(scope="class")
     def http(self):
-        # PDF analysis via MedGemma/RunPod can take 3-4 min on cold start
-        with httpx.Client(base_url=BASE_URL, timeout=300) as client:
+        # PDF pipeline: extract + langextract + MedGemma synthesis + aggregator = 5-8 min
+        with httpx.Client(base_url=BASE_URL, timeout=600) as client:
             yield client
 
     def _upload_file(self, http: httpx.Client, filename: str) -> dict:

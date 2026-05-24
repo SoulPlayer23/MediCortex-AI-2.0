@@ -172,7 +172,7 @@ def langextract_structured_extract(report_text: str, doc_type: str = "auto") -> 
     try:
         result = _run_extraction(report_text, detected_type)
     except Exception as e:
-        logger.warning("langextract_parse_error", event="langextract_parse_error", error=str(e))
+        logger.warning("langextract_parse_error", error=str(e))
         return (
             f"LangExtract extraction failed ({type(e).__name__}: {e}). "
             "Falling back to standard report analysis."
