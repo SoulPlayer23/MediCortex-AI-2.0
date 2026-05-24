@@ -2056,10 +2056,12 @@ async def get_chat_history(session_id: str, db: AsyncSession = Depends(get_db)):
 async def upload_file(request: Request, file: UploadFile = File(...)):
     """Upload file to MinIO with SEC-1 size cap."""
     _ = request
+    _ALLOWED_MIME_PREFIXES = ("image/", "application/pdf", "text/plain", "text/csv")
+    ct = (file.content_type or "").lower()
+    if not any(ct.startswith(p) for p in _ALLOWED_MIME_PREFIXES):
+        raise HTTPException(status_code=415, detail=f"Unsupported file type: {ct}")
     try:
         # SEC-1: read up to MAX_UPLOAD_BYTES + 1; if we exceed the cap, reject.
-        # Reading bounded prevents a malicious client from forcing the worker
-        # to buffer an unbounded payload into RAM (DoS / OOM vector).
         cap = settings.MAX_UPLOAD_BYTES
         content = await file.read(cap + 1)
         if len(content) > cap:
