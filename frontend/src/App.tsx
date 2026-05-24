@@ -44,7 +44,7 @@ function App() {
     setCurrentSessionId(id);
   }, []);
 
-  if (window.location.pathname === '/dashboard') {
+  if (window.location.pathname.endsWith('/dashboard')) {
     return <Dashboard />;
   }
 

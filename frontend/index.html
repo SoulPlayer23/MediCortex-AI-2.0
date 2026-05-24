@@ -4,7 +4,17 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <title>MediCortex AI</title>
+    <script>
+      // Restore path redirected by 404.html for GitHub Pages SPA routing
+      (function() {
+        var p = new URLSearchParams(window.location.search).get('p');
+        if (p) {
+          var base = window.location.pathname.split('/').slice(0, 2).join('/');
+          window.history.replaceState(null, '', base + '/' + p);
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
