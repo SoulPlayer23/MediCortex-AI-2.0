@@ -37,7 +37,7 @@ _PHI_PRODUCING_TOOLS = {"extract_document_text", "extract_image_findings"}
 
 # HIPAA identifiers to redact from extraction tool observations.
 # DATE_TIME and LOCATION excluded: clinically meaningful and no restoration needed.
-_PHI_ENTITIES = ["PERSON", "PHONE_NUMBER", "EMAIL_ADDRESS", "US_SSN", "US_DRIVER_LICENSE", "US_PASSPORT"]
+_PHI_ENTITIES = ["PERSON", "PHONE_NUMBER", "EMAIL_ADDRESS", "US_SSN", "US_PASSPORT"]
 
 # Singleton Presidio analyzer — instantiated once at import, not per tool call.
 _phi_analyzer = None
