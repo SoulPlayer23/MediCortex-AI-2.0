@@ -10,6 +10,7 @@ Compliant with:
 
 import base64
 import re
+import time
 
 import httpx
 import requests
@@ -93,17 +94,37 @@ def extract_image_findings(file_url: str, clinical_context: str = "") -> str:
             "max_tokens": 512,
         }
         # RunPod /runsync requires inputs wrapped under "input" key.
-        payload = {"input": body} if _looks_like_runpod(settings.MEDGEMMA_API_URL) else body
+        is_runpod = _looks_like_runpod(settings.MEDGEMMA_API_URL)
+        payload = {"input": body} if is_runpod else body
 
         headers = {}
         if settings.RUNPOD_API_KEY:
             headers["Authorization"] = f"Bearer {settings.RUNPOD_API_KEY}"
         response = requests.post(settings.MEDGEMMA_API_URL, json=payload, headers=headers, timeout=120)
         response.raise_for_status()
+        result = response.json()
+
+        # RunPod /runsync may return IN_PROGRESS if inference exceeds the sync
+        # timeout window. Poll the status endpoint until COMPLETED or FAILED.
+        if is_runpod and result.get("status") == "IN_PROGRESS":
+            job_id = result.get("id")
+            status_url = re.sub(r"/runsync$", f"/status/{job_id}", settings.MEDGEMMA_API_URL)
+            logger.info("image_extraction_polling", job_id=job_id)
+            deadline = time.time() + 180  # poll up to 3 minutes
+            while time.time() < deadline:
+                time.sleep(4)
+                poll = requests.get(status_url, headers=headers, timeout=15)
+                poll.raise_for_status()
+                result = poll.json()
+                status = result.get("status")
+                if status in ("COMPLETED", "FAILED", "CANCELLED"):
+                    logger.info("image_extraction_poll_done", status=status)
+                    break
+
         # _unwrap_response handles all RunPod shapes:
         # {"output": {"text": ...}}, {"output": {"response": ...}}, {"output": "..."},
         # and the local medgemma-host shape {"response": "..."}.
-        findings = _unwrap_response(response.json())
+        findings = _unwrap_response(result)
 
         if not findings:
             return "Warning: MedGemma returned empty analysis. The image may not be a recognizable medical image."
