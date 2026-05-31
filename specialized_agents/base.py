@@ -696,9 +696,25 @@ class A2ABaseAgent:
 
     @staticmethod
     def _is_looping(text: str, max_repeats: int = 3) -> bool:
-        """Return True if any sentence in *text* appears more than *max_repeats* times."""
-        # Split on sentence-ending punctuation followed by whitespace or end-of-string
-        sentences = re.split(r'(?<=[.!?])\s+', text.strip())
+        """Return True if output is degenerate: sentence loops OR backtick/whitespace garbage."""
+        stripped = text.strip()
+        if not stripped:
+            return True
+
+        # Degenerate: >60% of non-whitespace chars are backticks (e.g. 3072 chars of ```)
+        non_ws = stripped.replace(" ", "").replace("\n", "")
+        if non_ws and non_ws.count("`") / len(non_ws) > 0.6:
+            return True
+
+        # Degenerate: >80% of lines are empty or just punctuation/backticks
+        lines = stripped.splitlines()
+        if len(lines) > 10:
+            junk_lines = sum(1 for l in lines if not l.strip() or set(l.strip()) <= {"`", " ", "#", "-"})
+            if junk_lines / len(lines) > 0.8:
+                return True
+
+        # Original: sentence repetition
+        sentences = re.split(r'(?<=[.!?])\s+', stripped)
         if len(sentences) < max_repeats + 1:
             return False
         counts: Dict[str, int] = {}
