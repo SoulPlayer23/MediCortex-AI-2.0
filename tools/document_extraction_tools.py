@@ -62,57 +62,76 @@ def _group_pages(pages_md: List[str]) -> List[Tuple[List[int], str]]:
     return groups
 
 
-_SECTION_MAX_CHARS = 6000  # ~1500 tokens — safe for MedGemma 7B context window
+_SECTION_MAX_CHARS = 8000  # ~2000 tokens — safe for gemma4 context window
+_CHUNK_MAX_CHARS = 4000   # chunk size when splitting oversized sections
 
 
-def _analyze_section_with_medgemma(section_text: str, section_label: str, report_type: str) -> str:
-    """Call MedGemma (with Ollama fallback) to produce a detailed analysis of one section.
+def _structure_section_with_gemma4(section_text: str, section_label: str, report_type: str) -> str:
+    """Use gemma4:31b-cloud to extract and structure clinical values from one section.
 
-    If the section text exceeds the model's safe context window it is split into
-    sub-chunks, each analyzed individually, and the sub-results are joined before
-    returning so no content is silently dropped.
+    Extraction/structuring is a fast text-parsing task suited for gemma4.
+    MedGemma is reserved for the agent's final clinical synthesis step.
+    Sections exceeding _SECTION_MAX_CHARS are split into chunks and results joined.
     """
-    from specialized_agents.medgemma_llm import MedGemmaLLM
-    llm_instance = MedGemmaLLM()
+    from langchain_openai import ChatOpenAI
+    from config import settings as _settings
 
-    # Split oversized sections into sub-chunks and recurse
+    llm = ChatOpenAI(
+        base_url=f"{_settings.OLLAMA_BASE_URL}/v1",
+        api_key="ollama",
+        model="gemma4:31b-cloud",
+        temperature=0,
+        timeout=60,  # hard 60-second cap — prevents multi-minute hangs
+    )
+
+    # Split oversized sections into chunks
     if len(section_text) > _SECTION_MAX_CHARS:
         chunks = [
-            section_text[i: i + _SECTION_MAX_CHARS]
-            for i in range(0, len(section_text), _SECTION_MAX_CHARS)
+            section_text[i: i + _CHUNK_MAX_CHARS]
+            for i in range(0, len(section_text), _CHUNK_MAX_CHARS)
         ]
-        sub_analyses = []
+        sub_results = []
         for chunk_idx, chunk in enumerate(chunks, start=1):
             sub_label = f"{section_label} (part {chunk_idx}/{len(chunks)})"
-            sub_analyses.append(_analyze_section_with_medgemma(chunk, sub_label, report_type))
-        return "\n\n".join(sub_analyses)
+            sub_results.append(_structure_section_with_gemma4(chunk, sub_label, report_type))
+        return "\n\n".join(sub_results)
 
     prompt = (
-        f"You are a clinical medical report analyst.\n\n"
-        f"Analyze the following section of a {report_type} medical document "
-        f"({section_label}) and extract EVERY clinically relevant detail. "
-        f"Be exhaustive — this output will be fed into a final aggregation step, "
-        f"so do NOT summarise or omit any values, findings, or observations.\n\n"
-        f"Structure your output as:\n"
-        f"- **Findings** — all observed values, measurements, or clinical observations\n"
-        f"- **Abnormalities** — anything outside normal ranges (flag with ⚠️)\n"
-        f"- **Clinical Notes** — relevant contextual information\n\n"
-        f"CRITICAL: Base your analysis ONLY on the content below. "
-        f"Do NOT fabricate or infer values.\n\n"
-        f"--- SECTION CONTENT ---\n{section_text}"
+        f"Extract and structure all clinical data from this {report_type} section ({section_label}).\n\n"
+        f"List EVERY value, measurement, test name, result, unit, and reference range verbatim. "
+        f"Do NOT summarise, interpret, or omit any data — this output feeds clinical analysis downstream.\n\n"
+        f"Format as:\n"
+        f"- **Test / Parameter** | Result | Unit | Reference Range | Status (normal/⚠️ abnormal)\n\n"
+        f"Also note: Patient demographics, referring physician, report date if present.\n\n"
+        f"ONLY use data from the content below. Do not fabricate values.\n\n"
+        f"--- CONTENT ---\n{section_text}"
     )
 
     try:
-        return llm_instance.invoke(prompt)
+        response = llm.invoke(prompt)
+        return response.content if hasattr(response, "content") else str(response)
     except Exception as e:
-        logger.error("section_analysis_failed", label=section_label, error=str(e))
-        return f"[Analysis failed for {section_label}: {e}]\n\nRaw content:\n{section_text[:2000]}"
+        logger.error("section_structuring_failed", label=section_label, error=str(e))
+        # Return raw text so the agent can still work with it
+        return f"[Structuring failed for {section_label}: {e}]\n\nRaw content:\n{section_text[:3000]}"
 
 
-def _aggregate_analyses(section_analyses: List[str], report_type: str) -> str:
-    """Call MedGemma to aggregate all per-section analyses into a single comprehensive report."""
-    from specialized_agents.medgemma_llm import MedGemmaLLM
-    llm_instance = MedGemmaLLM()
+def _aggregate_sections_with_gemma4(section_analyses: List[str], report_type: str) -> str:
+    """Use gemma4:31b-cloud to merge per-section structured data into one coherent block.
+
+    This is still extraction/structuring (not clinical reasoning), so gemma4 is appropriate.
+    MedGemma performs the final clinical interpretation inside report_agent.py.
+    """
+    from langchain_openai import ChatOpenAI
+    from config import settings as _settings
+
+    llm = ChatOpenAI(
+        base_url=f"{_settings.OLLAMA_BASE_URL}/v1",
+        api_key="ollama",
+        model="gemma4:31b-cloud",
+        temperature=0,
+        timeout=60,
+    )
 
     combined = "\n\n---\n\n".join(
         f"### {label}\n{analysis}"
@@ -120,22 +139,15 @@ def _aggregate_analyses(section_analyses: List[str], report_type: str) -> str:
     )
 
     prompt = (
-        f"You are a clinical medical report analyst performing a final aggregation.\n\n"
-        f"Below are detailed per-section analyses of a multi-page {report_type} report. "
-        f"Synthesize them into a single comprehensive clinical interpretation. "
-        f"Do NOT discard any finding from any section.\n\n"
-        f"Output as structured Markdown:\n"
-        f"1. **Report Summary** — Report type and high-level overview\n"
-        f"2. **Key Findings** — All important values, measurements, and observations (from ALL sections)\n"
-        f"3. **Abnormalities** — All values or findings outside normal ranges (flag with ⚠️)\n"
-        f"4. **Clinical Significance** — What the full set of findings may indicate clinically\n"
-        f"5. **Recommendations** — Suggested follow-up actions or specialist referrals\n\n"
-        f"CRITICAL: Preserve every specific value and finding from the section analyses below.\n\n"
-        f"--- PER-SECTION ANALYSES ---\n\n{combined}"
+        f"Merge the following per-section structured data from a multi-page {report_type} report "
+        f"into a single consolidated data block. Preserve EVERY value, measurement, and finding. "
+        f"Deduplicate repeated headers but keep all unique rows.\n\n"
+        f"--- PER-SECTION DATA ---\n\n{combined}"
     )
 
     try:
-        return llm_instance.invoke(prompt)
+        response = llm.invoke(prompt)
+        return response.content if hasattr(response, "content") else str(response)
     except Exception as e:
         logger.error("aggregation_failed", error=str(e))
         return "\n\n---\n\n".join(f"**{label}**\n{a}" for label, a in section_analyses)
@@ -239,7 +251,7 @@ def extract_document_text(file_url: str, report_type: str = "general") -> str:
                 label = f"Pages {group_pages[0] + 1}–{group_pages[-1] + 1}"
 
             logger.info("document_section_analyzing", label=label)
-            analysis = _analyze_section_with_medgemma(group_md, label, report_type)
+            analysis = _structure_section_with_gemma4(group_md, label, report_type)
             section_analyses.append((label, analysis))
 
         if not section_analyses:
@@ -252,7 +264,7 @@ def extract_document_text(file_url: str, report_type: str = "general") -> str:
 
         # ── Aggregate all section analyses into final report ───────────────
         logger.info("document_extraction_aggregating", sections=len(section_analyses))
-        final_analysis = _aggregate_analyses(section_analyses, report_type)
+        final_analysis = _aggregate_sections_with_gemma4(section_analyses, report_type)
 
         logger.info("document_extraction_complete", pages=page_count, sections=len(section_analyses))
         return f"## Full Document Analysis ({page_count} pages, {len(section_analyses)} sections)\n\n{final_analysis}"

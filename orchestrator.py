@@ -846,6 +846,12 @@ async def node_router(state: AgentState):
     )
     messages = [SystemMessage(content=system_prompt), HumanMessage(content=user_message)]
     
+    # Thesis ablation: skip routing entirely — aggregate without specialist agents
+    if settings.EVAL_FORCE_NOAGENT:
+        logger.info("EVAL_FORCE_NOAGENT: bypassing agent routing")
+        state["node_timings"] = {"router": _time.monotonic() - _t0_node}
+        return {"messages": [AIMessage(content="[]")], "node_timings": {"router": _time.monotonic() - _t0_node}}
+
     try:
         response = (await llm_ainvoke(llm, messages, role="router")).content
         clean_response = response.replace("```json", "").replace("```", "").strip()
@@ -1093,10 +1099,16 @@ async def node_aggregator_with_reretrieval(state: AgentState):
                 agent_executor = AGENT_REGISTRY.get(agent_key)
                 if not agent_executor:
                     return None
+                rerun_file_urls = state.get("file_urls") or []
+                file_note = (
+                    "\n\nFiles to analyze:\n" + "\n".join(rerun_file_urls)
+                    if agent_key == "report_analyzer" and rerun_file_urls else ""
+                )
                 enhanced_input = (
                     f"Conversation History:\n{history_str}\n\n"
                     f"Current Request: {state['redacted_input']}"
                     + (f"\n\nContext from Knowledge Core (enriched):\n{context_str}" if context_str else "")
+                    + file_note
                 )
                 _idem_key = _hashlib.sha256(
                     f"{state.get('session_id','')}{agent_key}{enhanced_input}".encode()
