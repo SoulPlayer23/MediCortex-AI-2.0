@@ -42,3 +42,5 @@ class AgentResponse(BaseModel):
     # RAG-1 Part B — reactive re-retrieval signals
     low_context: bool = False
     refined_query: Optional[str] = None
+    # HIPAA: new PII mappings discovered in tool observations (e.g. names in PDFs)
+    pii_mapping_extension: Dict[str, str] = Field(default_factory=dict)

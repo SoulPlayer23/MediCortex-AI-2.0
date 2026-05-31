@@ -1,4 +1,5 @@
 import inspect
+import json
 import logging
 import re
 import time as _time
@@ -29,6 +30,93 @@ def _llm_invoke_audit(llm_obj, messages, *, agent: str, role: str) -> any:
 # MedGemma — used exclusively for clinical synthesis (Phase 2).
 # Tool orchestration is handled by gemma4:31b-cloud (Phase 1).
 llm = MedGemmaLLM()
+
+# Tools whose observations may contain patient PHI (names embedded in PDFs/images).
+# Web crawl tools are deliberately excluded — they return public literature only.
+_PHI_PRODUCING_TOOLS = {"extract_document_text", "extract_image_findings"}
+
+# HIPAA identifiers to redact from extraction tool observations.
+# DATE_TIME and LOCATION excluded: clinically meaningful and no restoration needed.
+_PHI_ENTITIES = ["PERSON", "PHONE_NUMBER", "EMAIL_ADDRESS", "US_SSN", "US_DRIVER_LICENSE", "US_PASSPORT"]
+
+# Singleton Presidio analyzer — instantiated once at import, not per tool call.
+_phi_analyzer = None
+
+def _get_phi_analyzer():
+    global _phi_analyzer
+    if _phi_analyzer is None:
+        try:
+            from presidio_analyzer import AnalyzerEngine
+            _phi_analyzer = AnalyzerEngine()
+        except Exception as e:
+            logger.warning("phi_analyzer_init_failed", error=str(e))
+    return _phi_analyzer
+
+
+def _redact_observation(observation: str, existing_mapping: Dict[str, str]) -> Tuple[str, Dict[str, str]]:
+    """
+    Run Presidio over a raw tool observation and return (redacted_text, new_mappings).
+
+    Uses the existing pii_mapping to derive placeholder offsets so that new
+    placeholders never collide with ones already known to node_restore_privacy.
+    new_mappings contains ONLY the entries added by this call — callers merge
+    them into the full mapping themselves.
+    """
+    if not observation or len(observation) < 5:
+        return observation, {}
+
+    analyzer = _get_phi_analyzer()
+    if analyzer is None:
+        return observation, {}
+
+    # Count existing placeholders per type to derive the starting index offset
+    # so new placeholders never collide with ones already in the state mapping.
+    type_offsets: Dict[str, int] = {}
+    for placeholder in existing_mapping:
+        m = re.match(r"<([A-Z_]+)_(\d+)>", placeholder)
+        if m:
+            etype, idx = m.group(1), int(m.group(2))
+            type_offsets[etype] = max(type_offsets.get(etype, 0), idx)
+
+    try:
+        results = analyzer.analyze(text=observation, entities=_PHI_ENTITIES, language="en")
+    except Exception as e:
+        logger.warning("phi_redact_observation_failed", error=str(e))
+        return observation, {}
+
+    if not results:
+        return observation, {}
+
+    results = sorted(results, key=lambda r: r.start, reverse=True)
+    redacted = observation
+    new_mappings: Dict[str, str] = {}
+    type_counts: Dict[str, int] = dict(type_offsets)
+
+    for result in results:
+        etype = result.entity_type
+        start, end = result.start, result.end
+        original = observation[start:end]
+
+        # Skip if this exact value is already in the mapping (deduplicate).
+        if original in existing_mapping.values() or original in new_mappings.values():
+            existing_placeholder = next(
+                (k for k, v in {**existing_mapping, **new_mappings}.items() if v == original),
+                None,
+            )
+            if existing_placeholder:
+                redacted = redacted[:start] + existing_placeholder + redacted[end:]
+                continue
+
+        count = type_counts.get(etype, 0) + 1
+        type_counts[etype] = count
+        placeholder = f"<{etype}_{count}>"
+        new_mappings[placeholder] = original
+        redacted = redacted[:start] + placeholder + redacted[end:]
+
+    if new_mappings:
+        logger.info("phi_redacted_observation", new_entities=len(new_mappings))
+
+    return redacted, new_mappings
 
 
 class A2ABaseAgent:
@@ -149,6 +237,17 @@ class A2ABaseAgent:
                 user_input, live_thoughts_queue, tool_context
             )
 
+            # Compute any new PII mappings discovered during tool observations
+            # so the orchestrator can merge them into state for node_restore_privacy.
+            pii_extension: Dict[str, str] = {}
+            if tool_context.get("pii_mapping_json"):
+                try:
+                    full_mapping = json.loads(tool_context["pii_mapping_json"])
+                    original_mapping = json.loads(envelope.payload.get("pii_mapping_json") or "{}")
+                    pii_extension = {k: v for k, v in full_mapping.items() if k not in original_mapping}
+                except Exception:
+                    pass
+
             response = AgentResponse(
                 envelope_id=envelope.idempotency_key,
                 output=output,
@@ -156,6 +255,7 @@ class A2ABaseAgent:
                 sources=sources,
                 low_context=low_context,
                 refined_query=refined_query,
+                pii_mapping_extension=pii_extension,
             )
 
             # Cache write
@@ -484,7 +584,27 @@ class A2ABaseAgent:
                     injectable = {}
                 merged_args.update(injectable)
 
-            return str(tool.invoke(merged_args))
+            observation = str(tool.invoke(merged_args))
+
+            # HIPAA: only PHI-producing tools (document/image extraction) need
+            # observation redaction. Web crawl tools return public literature
+            # with no patient identifiers, so we skip Presidio there to avoid
+            # false positives and unnecessary latency (~50-100ms per call).
+            if tool_name in _PHI_PRODUCING_TOOLS:
+                existing_mapping: Dict[str, str] = {}
+                if tool_context.get("pii_mapping_json"):
+                    try:
+                        existing_mapping = json.loads(tool_context["pii_mapping_json"])
+                    except Exception:
+                        pass
+
+                observation, new_mappings = _redact_observation(observation, existing_mapping)
+
+                if new_mappings:
+                    merged_mapping = {**existing_mapping, **new_mappings}
+                    tool_context["pii_mapping_json"] = json.dumps(merged_mapping)
+
+            return observation
 
         except Exception as e:
             logger.warning(f"[{self.name}] Tool '{tool_name}' error: {e}")

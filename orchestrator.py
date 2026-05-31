@@ -961,12 +961,11 @@ def make_agent_node(agent_key: str):
                 payload={"input": enhanced_input},
             )
 
-            # HIPAA: Pass PII mapping to patient agent via payload only.
-            # Never inject real PII values into enhanced_input — it would reach
-            # the OpenAI fallback LLM if MedGemma is offline.
-            if agent_key == "patient":
-                import json as _json
-                envelope.payload["pii_mapping_json"] = _json.dumps(state.get("pii_mapping", {}))
+            # HIPAA: Pass PII mapping to ALL agents via payload so that
+            # _redact_observation() in base.py can compute correct placeholder
+            # offsets for any PHI found in PDF/image tool observations.
+            import json as _json
+            envelope.payload["pii_mapping_json"] = _json.dumps(state.get("pii_mapping", {}))
 
             # Diagnosis: pass knowledge core context so analyze_symptoms tool can
             # inject it into its internal MedGemma call via tool_context injection.
@@ -1004,6 +1003,14 @@ def make_agent_node(agent_key: str):
                 "agents_used": [agent_key],
                 "agent_sources": response.sources if response.sources else [],
             }
+
+            # HIPAA: merge any new PII mappings discovered in tool observations
+            # (e.g. patient names extracted from PDFs) into state so that
+            # node_restore_privacy can restore them in the final answer.
+            if response.pii_mapping_extension:
+                merged_pii = {**state.get("pii_mapping", {}), **response.pii_mapping_extension}
+                result["pii_mapping"] = merged_pii
+                logger.info("pii_mapping_extended", new_entries=len(response.pii_mapping_extension))
 
             # RAG-1 Part B: propagate low-context signal for reactive re-retrieval
             if response.low_context:
@@ -1120,8 +1127,7 @@ async def node_aggregator_with_reretrieval(state: AgentState):
                     receiver_id=agent_key,
                     payload={"input": enhanced_input},
                 )
-                if agent_key == "patient":
-                    envelope.payload["pii_mapping_json"] = _json.dumps(state.get("pii_mapping", {}))
+                envelope.payload["pii_mapping_json"] = _json.dumps(state.get("pii_mapping", {}))
                 if agent_key == "diagnosis":
                     envelope.payload["knowledge_context"] = context_str
                 envelope.payload["live_thoughts_queue"] = ACTIVE_STREAMS.get(session_id_str, [])
