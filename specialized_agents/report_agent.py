@@ -68,7 +68,9 @@ For any PDF or text-based report:
 3. Call analyze_report for additional clinical context if needed.
 
 For image-based reports (X-ray, MRI, CT scan images):
-1. Call extract_image_findings directly — LangExtract applies to text only.
+1. Call extract_image_findings — this is the ONLY tool call needed for images.
+   Do NOT call analyze_report or langextract_structured_extract for images.
+   After extract_image_findings returns, synthesize directly into the output format below.
 
 ═══ OUTPUT FORMAT ═══
 
