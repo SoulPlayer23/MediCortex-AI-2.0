@@ -1644,9 +1644,16 @@ async def lifespan(app: FastAPI):
     if _redis_available:
         logger.info("OPS-3: thought streaming via Redis — multi-worker safe")
     else:
+        # OPS-3: without Redis-backed ACTIVE_STREAMS, running >1 worker drops SSE
+        # thoughts from sibling processes. Refuse to start in that unsafe config.
+        if int(web_concurrency_env) > 1:
+            raise RuntimeError(
+                f"OPS-3: WEB_CONCURRENCY={web_concurrency_env} requires Redis for "
+                "SSE thought-streaming. Start Redis and set REDIS_URL, or set "
+                "WEB_CONCURRENCY=1."
+            )
         logger.warning(
-            "OPS-3: Redis unavailable — thought streaming is process-local. "
-            "Multi-worker scale-out will drop SSE thoughts from sibling workers.",
+            "OPS-3: Redis unavailable — thought streaming is process-local (single worker only).",
             web_concurrency=web_concurrency_env,
         )
 
