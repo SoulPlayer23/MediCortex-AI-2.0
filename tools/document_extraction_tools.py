@@ -100,6 +100,8 @@ def _structure_section_with_gemma4(section_text: str, section_label: str, report
         f"Extract and structure all clinical data from this {report_type} section ({section_label}).\n\n"
         f"List EVERY value, measurement, test name, result, unit, and reference range verbatim. "
         f"Do NOT summarise, interpret, or omit any data — this output feeds clinical analysis downstream.\n\n"
+        f"CRITICAL: Copy all dates, times, and years EXACTLY as they appear in the source. "
+        f"Never abbreviate, truncate, or modify any date or year (e.g. write '2024' not '2X' or '24').\n\n"
         f"Format as:\n"
         f"- **Test / Parameter** | Result | Unit | Reference Range | Status (normal/⚠️ abnormal)\n\n"
         f"Also note: Patient demographics, referring physician, report date if present.\n\n"

@@ -635,63 +635,81 @@ class A2ABaseAgent:
         tool_results: List[Tuple[str, str]],
     ) -> str:
         """
-        Phase 2: MedGemma is called exactly once with the original query and all
-        gathered tool data. It produces the final clinical response without any
-        awareness of tool orchestration — it only sees medical content.
+        Two-phase synthesis:
 
-        After synthesis, a repetition guard checks whether any sentence appears
-        more than 3 times. If so, MedGemma has entered a loop — the output is
-        discarded and gemma4:31b-cloud synthesizes instead.
+        Phase 2a — MedGemma: clinical analysis of gathered tool data.
+          Receives raw tool observations and applies medical domain expertise to
+          interpret findings, flag abnormalities, and reason clinically.
+
+        Phase 2b — Gemma4:31b-cloud: human-friendly consolidation.
+          Always runs after MedGemma. Receives MedGemma's clinical analysis and
+          formats it into a clear, well-structured response for the user.
+          This separation keeps medical reasoning with MedGemma while ensuring
+          the final output is always coherent and readable.
         """
         if tool_results:
             gathered = "\n\n".join(
                 f"[{name} results]\n{obs}" for name, obs in tool_results
             )
-            prompt = (
+            medgemma_prompt = (
                 f"{self.system_prompt}\n\n"
                 f"User Query: {user_input}\n\n"
                 f"Gathered Data:\n{gathered}\n\n"
-                f"Using the gathered data above, provide your complete clinical response:"
+                f"Provide your clinical analysis of the gathered data above:"
             )
         else:
-            # No tools were called — answer from medical knowledge alone
-            prompt = (
+            medgemma_prompt = (
                 f"{self.system_prompt}\n\n"
                 f"User Query: {user_input}\n\n"
-                f"Provide your clinical response:"
+                f"Provide your clinical analysis:"
             )
 
-        logger.info("medgemma_request", agent=self.name, prompt_chars=len(prompt), prompt_preview=prompt[:300])
+        logger.info("medgemma_request", agent=self.name, prompt_chars=len(medgemma_prompt), prompt_preview=medgemma_prompt[:300])
         t0_synth = _time.monotonic()
-        output = self.llm.invoke(prompt)
+        clinical_analysis = self.llm.invoke(medgemma_prompt)
         synth_rtt_ms = round((_time.monotonic() - t0_synth) * 1000)
-        logger.info("medgemma_response", agent=self.name, rtt_ms=synth_rtt_ms, response_chars=len(output), response_preview=output[:500])
+        logger.info("medgemma_response", agent=self.name, rtt_ms=synth_rtt_ms, response_chars=len(clinical_analysis), response_preview=clinical_analysis[:500])
 
-        # Repetition guard: MedGemma sometimes loops a single sentence when it
-        # receives a prompt it cannot ground (e.g. empty KB context). Detect and
-        # fall back to gemma4:31b-cloud rather than returning garbage to the user.
-        if self._is_looping(output):
+        if self._is_looping(clinical_analysis):
             logger.warning(
-                f"[{self.name}] MedGemma loop detected — falling back to gemma4:31b-cloud",
-                looping_output=output[:500],
+                f"[{self.name}] MedGemma degenerate output — skipping to gemma4:31b-cloud consolidation",
+                looping_output=clinical_analysis[:200],
             )
-            try:
-                from langchain_core.messages import HumanMessage as _HumanMessage
-                fallback = ChatOllama(
-                    model=settings.OLLAMA_CLOUD_MODEL,
-                    temperature=1.0,
-                    top_p=0.95,
-                    top_k=64,
-                    base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
-                )
-                t0_fb = _time.monotonic()
-                output = fallback.invoke([_HumanMessage(content=prompt)]).content
-                fb_rtt_ms = round((_time.monotonic() - t0_fb) * 1000)
-                logger.info("llm_call", model=settings.OLLAMA_CLOUD_MODEL, agent=self.name, role="synthesis_fallback", rtt_ms=fb_rtt_ms, chars=len(output))
-            except Exception as e:
-                logger.error(f"[{self.name}] gemma4:31b-cloud fallback also failed: {e}")
+            clinical_analysis = ""
         else:
-            logger.info("llm_call", model="medgemma", agent=self.name, role="synthesis", rtt_ms=synth_rtt_ms, chars=len(output))
+            logger.info("llm_call", model="medgemma", agent=self.name, role="clinical_analysis", rtt_ms=synth_rtt_ms, chars=len(clinical_analysis))
+
+        # Phase 2b — Gemma4 always consolidates into a human-friendly final response.
+        from langchain_core.messages import HumanMessage as _HumanMessage
+        consolidator = ChatOllama(
+            model=settings.OLLAMA_CLOUD_MODEL,
+            temperature=1.0,
+            top_p=0.95,
+            top_k=64,
+            base_url=settings.OLLAMA_CLOUD_URL.removesuffix("/v1"),
+        )
+        if clinical_analysis:
+            consolidation_prompt = (
+                f"You are a medical communication specialist. A medical AI has produced the following "
+                f"clinical analysis in response to this query: \"{user_input}\"\n\n"
+                f"Clinical Analysis:\n{clinical_analysis}\n\n"
+                f"Consolidate this into a clear, well-structured, human-friendly response. "
+                f"Preserve all clinical facts, values, and recommendations. "
+                f"Use markdown formatting with headers and bullet points where appropriate."
+            )
+        else:
+            # MedGemma produced nothing useful — consolidate directly from tool data
+            gathered_fallback = "\n\n".join(f"[{n}]\n{o}" for n, o in tool_results) if tool_results else ""
+            consolidation_prompt = (
+                f"You are a medical AI assistant. Answer this query using the gathered data below.\n\n"
+                f"Query: {user_input}\n\n"
+                f"Gathered Data:\n{gathered_fallback}\n\n"
+                f"Provide a clear, well-structured clinical response."
+            )
+        t0_cons = _time.monotonic()
+        output = consolidator.invoke([_HumanMessage(content=consolidation_prompt)]).content
+        cons_rtt_ms = round((_time.monotonic() - t0_cons) * 1000)
+        logger.info("llm_call", model=settings.OLLAMA_CLOUD_MODEL, agent=self.name, role="consolidation", rtt_ms=cons_rtt_ms, chars=len(output))
         return output
 
     @staticmethod
