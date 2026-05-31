@@ -31,27 +31,6 @@ _DATABASE_URL = os.getenv(
     "postgresql+asyncpg://postgres:postgres@localhost:5432/medicortex",
 ).replace("postgresql+asyncpg://", "postgresql://")
 
-# Shared connection pool — created once, reused across all tool calls.
-# min_size=1 keeps one warm connection ready; max_size=5 prevents overloading
-# Postgres under concurrent agent requests.
-_pool: Optional[asyncpg.Pool] = None
-_pool_lock = asyncio.Lock()
-
-
-async def _get_pool() -> asyncpg.Pool:
-    global _pool
-    if _pool is not None:
-        return _pool
-    async with _pool_lock:
-        if _pool is None:
-            _pool = await asyncpg.create_pool(
-                _DATABASE_URL,
-                min_size=1,
-                max_size=5,
-                command_timeout=10,
-            )
-    return _pool
-
 
 # ── Database helpers ─────────────────────────────────────────────────────────
 
@@ -72,9 +51,18 @@ def _parse_row(row) -> dict:
 
 
 async def _fetch_patient_async(real_identifier: str) -> Optional[dict]:
-    """Query patients table by full_name (case-insensitive) or patient_id."""
-    pool = await _get_pool()
-    async with pool.acquire() as conn:
+    """Query patients table — opens a fresh connection per call.
+
+    A shared module-level pool cannot be used here because this function is
+    called from _fetch_patient() which spins up a *new* event loop via
+    asyncio.new_event_loop(). asyncpg pools and locks are bound to the event
+    loop they were created in; reusing a pool across loops raises
+    "cannot perform operation: another operation is in progress" and
+    "Event loop is closed" on every subsequent call.  A short-lived single
+    connection avoids all cross-loop state.
+    """
+    conn = await asyncpg.connect(_DATABASE_URL, command_timeout=10)
+    try:
         row = await conn.fetchrow(
             """
             SELECT * FROM patients
@@ -92,10 +80,12 @@ async def _fetch_patient_async(real_identifier: str) -> Optional[dict]:
             f"%{real_identifier}%",
         )
         return _parse_row(row) if row else None
+    finally:
+        await conn.close()
 
 
 def _fetch_patient(real_identifier: str) -> Optional[dict]:
-    """Sync wrapper safe for thread-pool contexts (LangGraph sync nodes)."""
+    """Sync wrapper — each call runs in an isolated event loop."""
     loop = asyncio.new_event_loop()
     try:
         return loop.run_until_complete(_fetch_patient_async(real_identifier))

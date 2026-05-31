@@ -73,6 +73,9 @@ from specialized_agents.protocols import Envelope, AgentResponse
 class PrivacyManager:
     def __init__(self):
         logger.info("Initializing HIPAA Privacy Layer (Presidio)")
+        # Suppress non-English recognizer warnings — registry is English-only by design.
+        import logging as _logging
+        _logging.getLogger("presidio-analyzer").setLevel(_logging.ERROR)
         self.analyzer = AnalyzerEngine()
         self.anonymizer = AnonymizerEngine()
         logger.info("Presidio Engines Loaded", status="success")

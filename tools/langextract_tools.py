@@ -105,6 +105,11 @@ def _run_extraction(text: str, doc_type: str) -> dict:
         extraction_passes=2,
     )
 
+    # lx.extract() returns a single AnnotatedDocument when given a string,
+    # or a list when given a list. Normalise to list in both cases.
+    if not isinstance(result, list):
+        result = [result]
+
     entities = []
     grounded = []
     ungrounded = []

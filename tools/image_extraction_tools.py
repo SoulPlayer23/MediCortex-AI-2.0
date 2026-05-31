@@ -17,6 +17,7 @@ import structlog
 from langchain_core.tools import tool
 
 from config import settings
+from specialized_agents.medgemma_llm import _looks_like_runpod, _unwrap_response
 
 logger = structlog.get_logger("ImageExtractionTool")
 
@@ -86,19 +87,23 @@ def extract_image_findings(file_url: str, clinical_context: str = "") -> str:
 
         # Send to MedGemma vision API
         logger.info("image_extraction_sending_to_medgemma")
-        payload = {
+        body = {
             "prompt": prompt,
             "image_base64": image_b64,
-            "max_tokens": 512
+            "max_tokens": 512,
         }
+        # RunPod /runsync requires inputs wrapped under "input" key.
+        payload = {"input": body} if _looks_like_runpod(settings.MEDGEMMA_API_URL) else body
 
         headers = {}
         if settings.RUNPOD_API_KEY:
             headers["Authorization"] = f"Bearer {settings.RUNPOD_API_KEY}"
         response = requests.post(settings.MEDGEMMA_API_URL, json=payload, headers=headers, timeout=120)
         response.raise_for_status()
-        result = response.json()
-        findings = result.get("response", "")
+        # _unwrap_response handles all RunPod shapes:
+        # {"output": {"text": ...}}, {"output": {"response": ...}}, {"output": "..."},
+        # and the local medgemma-host shape {"response": "..."}.
+        findings = _unwrap_response(response.json())
 
         if not findings:
             return "Warning: MedGemma returned empty analysis. The image may not be a recognizable medical image."

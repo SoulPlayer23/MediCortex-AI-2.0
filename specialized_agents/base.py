@@ -46,6 +46,8 @@ def _get_phi_analyzer():
     global _phi_analyzer
     if _phi_analyzer is None:
         try:
+            import logging as _logging
+            _logging.getLogger("presidio-analyzer").setLevel(_logging.ERROR)
             from presidio_analyzer import AnalyzerEngine
             _phi_analyzer = AnalyzerEngine()
         except Exception as e:
