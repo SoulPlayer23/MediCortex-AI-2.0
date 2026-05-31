@@ -92,7 +92,10 @@ def extract_image_findings(file_url: str, clinical_context: str = "") -> str:
             "max_tokens": 512
         }
 
-        response = requests.post(settings.MEDGEMMA_API_URL, json=payload, timeout=120)
+        headers = {}
+        if settings.RUNPOD_API_KEY:
+            headers["Authorization"] = f"Bearer {settings.RUNPOD_API_KEY}"
+        response = requests.post(settings.MEDGEMMA_API_URL, json=payload, headers=headers, timeout=120)
         response.raise_for_status()
         result = response.json()
         findings = result.get("response", "")
