@@ -77,9 +77,9 @@ def _structure_section_with_gemma4(section_text: str, section_label: str, report
     from config import settings as _settings
 
     llm = ChatOpenAI(
-        base_url=f"{_settings.OLLAMA_BASE_URL}/v1",
+        base_url=f"{_settings.OLLAMA_CLOUD_URL}/v1",
         api_key="ollama",
-        model="gemma4:31b-cloud",
+        model=_settings.OLLAMA_CLOUD_MODEL,
         temperature=0,
         timeout=60,  # hard 60-second cap — prevents multi-minute hangs
     )
@@ -126,9 +126,9 @@ def _aggregate_sections_with_gemma4(section_analyses: List[str], report_type: st
     from config import settings as _settings
 
     llm = ChatOpenAI(
-        base_url=f"{_settings.OLLAMA_BASE_URL}/v1",
+        base_url=f"{_settings.OLLAMA_CLOUD_URL}/v1",
         api_key="ollama",
-        model="gemma4:31b-cloud",
+        model=_settings.OLLAMA_CLOUD_MODEL,
         temperature=0,
         timeout=60,
     )
