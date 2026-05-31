@@ -147,6 +147,7 @@ class A2ABaseAgent:
         system_prompt: str,
         card: AgentCard,
         max_iterations: int = 3,
+        skip_medgemma_synthesis: bool = False,
     ):
         self.name = name
         self.llm = llm              # MedGemma — synthesis only
@@ -154,6 +155,7 @@ class A2ABaseAgent:
         self.system_prompt = system_prompt
         self.card = card
         self.max_iterations = max_iterations
+        self.skip_medgemma_synthesis = skip_medgemma_synthesis
 
         # Idempotency cache — Redis with in-memory fallback. OPS-7: bounded
         # socket timeouts so a slow/down Redis cannot block agent registry
@@ -674,20 +676,24 @@ class A2ABaseAgent:
                 f"Provide your clinical analysis:"
             )
 
-        logger.info("medgemma_request", agent=self.name, prompt_chars=len(medgemma_prompt), prompt_preview=medgemma_prompt[:300])
-        t0_synth = _time.monotonic()
-        clinical_analysis = self.llm.invoke(medgemma_prompt)
-        synth_rtt_ms = round((_time.monotonic() - t0_synth) * 1000)
-        logger.info("medgemma_response", agent=self.name, rtt_ms=synth_rtt_ms, response_chars=len(clinical_analysis), response_preview=clinical_analysis[:500])
-
-        if self._is_looping(clinical_analysis):
-            logger.warning(
-                f"[{self.name}] MedGemma degenerate output — skipping to gemma4:31b-cloud consolidation",
-                looping_output=clinical_analysis[:200],
-            )
+        if self.skip_medgemma_synthesis:
+            logger.info("medgemma_synthesis_skipped", agent=self.name, reason="tools already perform clinical synthesis")
             clinical_analysis = ""
         else:
-            logger.info("llm_call", model="medgemma", agent=self.name, role="clinical_analysis", rtt_ms=synth_rtt_ms, chars=len(clinical_analysis))
+            logger.info("medgemma_request", agent=self.name, prompt_chars=len(medgemma_prompt), prompt_preview=medgemma_prompt[:300])
+            t0_synth = _time.monotonic()
+            clinical_analysis = self.llm.invoke(medgemma_prompt)
+            synth_rtt_ms = round((_time.monotonic() - t0_synth) * 1000)
+            logger.info("medgemma_response", agent=self.name, rtt_ms=synth_rtt_ms, response_chars=len(clinical_analysis), response_preview=clinical_analysis[:500])
+
+            if self._is_looping(clinical_analysis):
+                logger.warning(
+                    f"[{self.name}] MedGemma degenerate output — skipping to gemma4:31b-cloud consolidation",
+                    looping_output=clinical_analysis[:200],
+                )
+                clinical_analysis = ""
+            else:
+                logger.info("llm_call", model="medgemma", agent=self.name, role="clinical_analysis", rtt_ms=synth_rtt_ms, chars=len(clinical_analysis))
 
         # Phase 2b — Gemma4 always consolidates into a human-friendly final response.
         from langchain_core.messages import HumanMessage as _HumanMessage

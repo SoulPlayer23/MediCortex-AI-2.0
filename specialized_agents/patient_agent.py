@@ -82,4 +82,5 @@ patient_agent = A2ABaseAgent(
     system_prompt=_SYSTEM_PROMPT,
     card=patient_card,
     max_iterations=5,  # retrieve + up to 3 analysis tools + 1 buffer
+    skip_medgemma_synthesis=True,
 )

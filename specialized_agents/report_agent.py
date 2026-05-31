@@ -105,4 +105,5 @@ report_agent = A2ABaseAgent(
     system_prompt=_SYSTEM_PROMPT,
     card=report_card,
     max_iterations=6,
+    skip_medgemma_synthesis=True,
 )
