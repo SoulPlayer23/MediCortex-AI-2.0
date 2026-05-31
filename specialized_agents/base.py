@@ -647,6 +647,16 @@ class A2ABaseAgent:
           This separation keeps medical reasoning with MedGemma while ensuring
           the final output is always coherent and readable.
         """
+        # If every tool result is an error string, skip MedGemma and return the
+        # error directly so the user gets a clean message instead of hallucinated output.
+        if tool_results:
+            all_errors = all(
+                obs.strip().startswith("Error:") or obs.strip().startswith("Warning:")
+                for _, obs in tool_results
+            )
+            if all_errors:
+                return tool_results[0][1]  # return the first error message verbatim
+
         if tool_results:
             gathered = "\n\n".join(
                 f"[{name} results]\n{obs}" for name, obs in tool_results
@@ -731,7 +741,15 @@ class A2ABaseAgent:
             if junk_lines / len(lines) > 0.8:
                 return True
 
-        # Original: sentence repetition
+        # Token-level repetition: catch comma/space-delimited loops (e.g. Russian gibberish,
+        # repeated short tokens with no sentence endings). Split on comma+space or newline.
+        tokens = [t.strip().lower() for t in re.split(r'[,\n]+', stripped) if t.strip()]
+        if len(tokens) >= 20:
+            unique_ratio = len(set(tokens)) / len(tokens)
+            if unique_ratio < 0.15:  # >85% of tokens are repeats
+                return True
+
+        # Sentence-level repetition
         sentences = re.split(r'(?<=[.!?])\s+', stripped)
         if len(sentences) < max_repeats + 1:
             return False
