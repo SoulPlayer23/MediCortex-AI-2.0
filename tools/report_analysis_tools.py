@@ -39,6 +39,13 @@ def analyze_report(extracted_content: str, report_type: str = "general") -> str:
     if not extracted_content or len(extracted_content.strip()) < 10:
         return "Error: No content provided for analysis. Please extract the document or image first."
 
+    # If the content is already a completed image analysis from extract_image_findings,
+    # pass it through directly — calling MedGemma again would confuse it because the
+    # text mentions "image" and it responds as if it needs the actual image file.
+    if extracted_content.strip().startswith("## Medical Image Analysis"):
+        logger.info("report_analysis_passthrough", reason="already_image_analysis")
+        return extracted_content
+
     # Build type-specific prompt
     type_guidance = {
         "lab_report": (
