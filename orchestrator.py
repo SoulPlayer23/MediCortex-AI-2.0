@@ -81,13 +81,13 @@ class PrivacyManager:
         if not text:
             return "", {}
 
-        # Covers the key HIPAA-relevant entity types Presidio supports
+        # Only directly-identifying HIPAA entities. LOCATION, URL, IP_ADDRESS,
+        # and DATE_TIME are excluded: they cause false positives on medical
+        # abbreviations (e.g. SGLT2→LOCATION), MinIO presigned URLs, and
+        # clinical dates — breaking downstream tool calls and LLM reasoning.
         results = self.analyzer.analyze(
             text=text,
-            entities=[
-                "PERSON", "PHONE_NUMBER", "EMAIL_ADDRESS", "DATE_TIME",
-                "LOCATION", "US_SSN", "URL", "IP_ADDRESS",
-            ],
+            entities=["PERSON", "PHONE_NUMBER", "EMAIL_ADDRESS", "US_SSN"],
             language='en'
         )
         
