@@ -58,8 +58,11 @@ clinical interpretation of the medical report or scan.
 ═══ TOOL CALL ORDER FOR TEXT-BASED REPORTS ═══
 
 For any PDF or text-based report:
-1. Call extract_document_text to get the raw report text.
-2. Call langextract_structured_extract on that text to get typed, validated entities.
+1. Call extract_document_text to get the structured report text.
+   The tool returns both a structured analysis AND a "Raw Source Text" section at the bottom.
+   Always use the Raw Source Text section for exact dates, patient demographics, and
+   report metadata — the raw text is verbatim from the PDF and is never modified by any LLM.
+2. Call langextract_structured_extract on the structured text to get typed, validated entities.
    This step detects lab values, radiology findings, or medication lists with
    provenance tracking — use it as your authoritative source for the synthesis step.
 3. Call analyze_report for additional clinical context if needed.
@@ -70,16 +73,20 @@ For image-based reports (X-ray, MRI, CT scan images):
 ═══ OUTPUT FORMAT ═══
 
 Structure your response as:
-1. **Report Summary** — Report type and high-level overview.
-2. **Key Findings** — Important values, measurements, or observations.
-3. **Abnormalities** — Any values or findings outside normal ranges (flag with ⚠️).
+1. **Report Metadata** — Always include: report date, collection date, patient age/sex,
+   referring physician. Extract these VERBATIM from the Raw Source Text section.
+2. **Report Summary** — Report type and high-level overview.
+3. **Key Findings** — Important values, measurements, or observations.
+4. **Abnormalities** — Any values or findings outside normal ranges (flag with ⚠️).
    For any entity marked ⚠️ in the langextract_structured_extract output, add a
    provenance note: "⚠️ [value] — unverified extraction, manual confirmation advised."
-4. **Clinical Significance** — What these findings may indicate clinically.
-5. **Recommendations** — Suggested follow-up actions or specialist referrals.
+5. **Clinical Significance** — What these findings may indicate clinically.
+6. **Recommendations** — Suggested follow-up actions or specialist referrals.
 
 CRITICAL:
 - NEVER fabricate lab values or imaging findings. Only interpret what was extracted.
+- For dates and years, always copy them verbatim from the Raw Source Text — never from
+  the structured analysis section which may have reformatted them.
 - If langextract_structured_extract returns "Falling back to standard report analysis",
   proceed with analyze_report output only — do not mention the fallback to the user.
 - If no data was successfully extracted, say so clearly and suggest the user re-upload

@@ -114,7 +114,6 @@ def _structure_section_with_gemma4(section_text: str, section_label: str, report
         return response.content if hasattr(response, "content") else str(response)
     except Exception as e:
         logger.error("section_structuring_failed", label=section_label, error=str(e))
-        # Return raw text so the agent can still work with it
         return f"[Structuring failed for {section_label}: {e}]\n\nRaw content:\n{section_text[:3000]}"
 
 
@@ -259,17 +258,28 @@ def extract_document_text(file_url: str, report_type: str = "general") -> str:
         if not section_analyses:
             return "Error: No extractable content found in the PDF."
 
+        # Raw text from pymupdf4llm — verbatim, no LLM processing.
+        # Appended so the agent can reference original values (e.g. exact dates)
+        # that Gemma4 may have reformatted during structuring.
+        raw_source = "\n\n".join(p for p in pages_md if p.strip())
+
         # ── Single-page shortcut: skip redundant aggregation ──────────────
         if len(section_analyses) == 1:
             label, analysis = section_analyses[0]
-            return f"## Extracted Document Analysis ({label})\n\n{analysis}"
+            return (
+                f"## Extracted Document Analysis ({label})\n\n{analysis}\n\n"
+                f"---\n## Raw Source Text (verbatim from PDF — use for exact dates/values)\n\n{raw_source}"
+            )
 
         # ── Aggregate all section analyses into final report ───────────────
         logger.info("document_extraction_aggregating", sections=len(section_analyses))
         final_analysis = _aggregate_sections_with_gemma4(section_analyses, report_type)
 
         logger.info("document_extraction_complete", pages=page_count, sections=len(section_analyses))
-        return f"## Full Document Analysis ({page_count} pages, {len(section_analyses)} sections)\n\n{final_analysis}"
+        return (
+            f"## Full Document Analysis ({page_count} pages, {len(section_analyses)} sections)\n\n{final_analysis}\n\n"
+            f"---\n## Raw Source Text (verbatim from PDF — use for exact dates/values)\n\n{raw_source}"
+        )
 
     except httpx.TimeoutException:
         logger.error("document_extraction_timeout", url=url)
