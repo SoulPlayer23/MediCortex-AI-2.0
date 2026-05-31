@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     JUDGE_FALLBACK_MODEL: str = "llama-3.1-8b-instant"
     JUDGE_MAX_INPUT_TOKENS: int = 500
 
+    # Thesis ablation: bypass agent routing entirely (non-agentic RAG baseline)
+    EVAL_FORCE_NOAGENT: bool = False
+
     @field_validator("ALLOWED_ORIGINS", mode="before")
     @classmethod
     def _split_origins(cls, v):
