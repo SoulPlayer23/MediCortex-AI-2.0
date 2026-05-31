@@ -382,11 +382,16 @@ async def node_scope_guard(state: AgentState):
         "You are a medical AI scope filter. Reply with ONLY '1' (in scope) or '0' (out of scope). "
         "No explanation, no punctuation — a single digit.\n\n"
         "IN SCOPE: medicine, diseases, symptoms, drugs, pharmacology, anatomy, physiology, biology, "
-        "lab results, medical procedures, patient care, mental health, genetics, nutrition related "
-        "to health, public health, veterinary medicine.\n\n"
+        "lab results, medical reports, blood work, CBC, HbA1c, imaging reports, radiology, "
+        "pathology, discharge summaries, clinical findings, patient records, diagnoses, "
+        "medical procedures, patient care, mental health, genetics, nutrition related "
+        "to health, public health, veterinary medicine. "
+        "ALSO IN SCOPE: any request to summarize, analyze, interpret, or extract findings "
+        "from a medical document, report, or file.\n\n"
         "OUT OF SCOPE: cooking, travel, sports, politics, programming, history, entertainment, "
         "celebrity news, general trivia, math problems, creative writing, anything unrelated to "
         "health or biology.\n\n"
+        "When in doubt, reply 1.\n\n"
         "Reply: 1 or 0"
     )
 
