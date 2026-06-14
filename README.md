@@ -185,7 +185,7 @@ source .venv/bin/activate
 
 MediCortex AI 2.0 is self-hosted and not publicly accessible by default — the inference infrastructure (Gemma 4, MedGemma, ArangoDB knowledge graph) runs on private hardware via Tailscale.
 
-If you want access to a live demo or want to try the system, contact me at **vsanand@ecloudcontrol.com** and I can grant you access.
+If you want access to a live demo or want to try the system, contact me at **venkiteshsanand1920@gmail.com** and I can grant you access.
 
 ---
 
